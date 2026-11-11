@@ -684,7 +684,7 @@ function renderMap(fit) {
   });
   if (single && ordered.length > 1) {
     L.polyline(ordered.map((p) => [p.lat, p.lng]), {
-      color: '#0f766e', weight: 3, opacity: 0.75, dashArray: '6 8', interactive: false,
+      color: '#1479a8', weight: 3.5, opacity: 0.8, dashArray: '2 9', lineCap: 'round', interactive: false,
     }).addTo(markerLayer);
   }
   if (!ordered.length) {
@@ -1227,7 +1227,7 @@ function openBulkImport() {
           icon: L.divIcon({ html: `<div class="pin small">${i + 1}</div>`, className: 'pin-wrap', iconSize: [30, 30], iconAnchor: [15, 30] }),
         }).addTo(bmap);
       });
-      if (pts.length > 1) L.polyline(pts, { color: '#0f766e', weight: 3, opacity: 0.75, dashArray: '6 8' }).addTo(bmap);
+      if (pts.length > 1) L.polyline(pts, { color: '#1479a8', weight: 3.5, opacity: 0.8, dashArray: '2 9', lineCap: 'round' }).addTo(bmap);
       if (pts.length) bmap.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
       else bmap.setView(map.getCenter(), 6);
     }, 50);

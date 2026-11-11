@@ -1,5 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#0f766e"/>
-  <path d="M256 96c-66 0-120 52-120 117 0 88 120 203 120 203s120-115 120-203c0-65-54-117-120-117z" fill="#fff"/>
-  <circle cx="256" cy="212" r="46" fill="#0f766e"/>
+  <!-- 청량 + 스케치북: 하늘색 모눈 종이 위에 손으로 그린 지도 핀 -->
+  <rect width="512" height="512" rx="112" fill="#2aa7d9"/>
+  <g stroke="#ffffff" stroke-opacity=".16" stroke-width="3">
+    <path d="M0 96H512M0 192H512M0 288H512M0 384H512M96 0V512M192 0V512M288 0V512M384 0V512"/>
+  </g>
+  <path d="M258 92c-68 2-122 53-120 120 3 86 116 202 120 206 6-4 119-121 120-208 1-66-53-120-120-118z"
+        fill="#fff1a1" stroke="#2c3e50" stroke-width="16" stroke-linejoin="round"/>
+  <circle cx="257" cy="210" r="44" fill="#ffffff" stroke="#2c3e50" stroke-width="14"/>
+  <path d="M150 436c40-14 70 8 108-4s68-18 104-2" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-dasharray="2 26"/>
 </svg>
