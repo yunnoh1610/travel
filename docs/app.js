@@ -23,11 +23,27 @@ const kindName = (k) => (KINDS[k] || KINDS.trip)[1];
 // css 파일은 index.html 의 <link id="themeCss-키">. 'basic'은 테마 파일 없이 기본 디자인
 const THEMES = {
   sketch: { name: '청량 스케치북', icon: '✏️', desc: '하늘색·민트, 모눈 종이와 손글씨', color: '#2aa7d9', route: '#1479a8', swatch: ['#2aa7d9', '#5fd3bf', '#fff1a1', '#fbfaf4'] },
+  passport: {
+    name: '여권 스크랩북', icon: '🛂', desc: '여권 도장·마스킹테이프·여행 지도', color: '#8a6d4f', route: '#f08a3c',
+    swatch: ['#e0533d', '#a9c7e3', '#8a6d4f', '#fdf3dc'],
+    // 지도 경로: 주황 선 위에 구슬처럼 이어지는 점
+    routeLines: [
+      { color: '#f08a3c', weight: 4, opacity: 0.85, lineCap: 'round' },
+      { color: '#fff3d6', weight: 7, opacity: 1, dashArray: '0.1 16', lineCap: 'round' },
+      { color: '#f6a35f', weight: 3, opacity: 1, dashArray: '0.1 16', lineCap: 'round' },
+    ],
+  },
   basic: { name: '기본', icon: '🌿', desc: '차분한 초록, 깔끔한 글꼴', color: '#0f766e', route: '#0f766e', swatch: ['#0f766e', '#e6f4f1', '#ffffff', '#f6f7f5'] },
 };
 const THEME_KEY = 'travelTheme';
 let currentTheme = THEMES[document.documentElement.dataset.theme] ? document.documentElement.dataset.theme : 'sketch';
 const routeColor = () => (THEMES[currentTheme] || THEMES.sketch).route;
+// 테마에 맞는 경로선 그리기 (여러 겹이면 겹쳐서)
+function drawRoute(points, layer) {
+  const t = THEMES[currentTheme] || THEMES.sketch;
+  const lines = t.routeLines || [{ color: t.route, weight: 3.5, opacity: 0.8, dashArray: '2 9', lineCap: 'round' }];
+  for (const style of lines) L.polyline(points, { ...style, interactive: false }).addTo(layer);
+}
 function applyTheme(t) {
   if (!THEMES[t]) t = 'sketch';
   currentTheme = t;
@@ -713,9 +729,7 @@ function renderMap(fit) {
     }).on('click', () => openPlace(p.id)).addTo(markerLayer);
   });
   if (single && ordered.length > 1) {
-    L.polyline(ordered.map((p) => [p.lat, p.lng]), {
-      color: routeColor(), weight: 3.5, opacity: 0.8, dashArray: '2 9', lineCap: 'round', interactive: false,
-    }).addTo(markerLayer);
+    drawRoute(ordered.map((p) => [p.lat, p.lng]), markerLayer);
   }
   if (!ordered.length) {
     const msg = state.trips.length
@@ -1270,7 +1284,7 @@ function openBulkImport() {
           icon: L.divIcon({ html: `<div class="pin small">${i + 1}</div>`, className: 'pin-wrap', iconSize: [30, 30], iconAnchor: [15, 30] }),
         }).addTo(bmap);
       });
-      if (pts.length > 1) L.polyline(pts, { color: routeColor(), weight: 3.5, opacity: 0.8, dashArray: '2 9', lineCap: 'round' }).addTo(bmap);
+      if (pts.length > 1) drawRoute(pts, bmap);
       if (pts.length) bmap.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
       else bmap.setView(map.getCenter(), 6);
     }, 50);

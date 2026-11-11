@@ -327,3 +327,9 @@ main { flex: 1; position: relative; overflow: hidden; }
 .theme-txt small { color: var(--muted); font-size: 12px; }
 .theme-check { flex: none; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #fff; background: transparent; }
 .theme-opt.on .theme-check { background: var(--accent); }
+
+/* 공통 보정: 작은 프로필 동그라미 글자 가운데, 사진 넘기기 스크롤 막대 숨기기 */
+.avatar { display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; }
+.cm .avatar, .member .avatar { display: flex; font-size: 14px; }
+.gallery { scrollbar-width: none; }
+.gallery::-webkit-scrollbar { display: none; }
