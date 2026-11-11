@@ -7,4 +7,7 @@
 window.TRAVEL_CONFIG = {
   url: 'https://bkqvcexlcqfciscdgodr.supabase.co',
   key: 'sb_publishable_H_RGx_BgkZNmHDjkOLZsVQ_hONoHQr-',
+  // 카카오 장소 검색 (한국 장소 이름·근처 후보). Kakao Developers > 앱 > 앱 키 > JavaScript 키
+  // 웹 페이지에 공개되는 키라 괜찮아요. 대신 카카오 앱 설정에 사이트 도메인을 등록해야 이 사이트에서만 동작해요.
+  kakaoKey: 'c9127a023e8946fa2be5a09f88411690',
 };

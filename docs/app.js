@@ -265,7 +265,7 @@ const isStation = (x) => (x.category === 'railway' && ['station', 'halt'].includ
   || (x.category === 'public_transport' && x.type === 'station');
 const searchPlaces = (text) => nominatim(`search?limit=8&q=${encodeURIComponent(text)}`);
 
-async function geocode(query) {
+async function geocodeOSM(query) {
   let list = (await searchPlaces(query)).map((x) => toPlace(x));
   // "공주역"처럼 지도 데이터에는 "역" 없이 "공주"로만 등록된 역이 많음 → "역"을 떼고 다시 찾아 역을 먼저
   const station = !list.length && query.match(/^(.+?)\s*역$/);
@@ -322,6 +322,103 @@ async function reverseGeocode(lat, lng) {
   }
   if (['place', 'boundary', 'landuse'].includes(x.category) || !name) return area ? `${area} 근처` : name;
   return name;
+}
+
+// ---------- 카카오 장소 검색 (한국) ----------
+// config.js 에 kakaoKey 가 있으면 한국 안에서는 카카오 장소 데이터를 먼저 써요. 문제가 생기면 위의 OpenStreetMap 방식으로.
+const KAKAO_CATS = { FD6: 'food', CE7: 'cafe', AT4: 'sight', CT1: 'sight', AD5: 'stay', SW8: 'sight' };
+let kakaoPromise = null;
+function kakaoReady() {
+  if (!CFG.kakaoKey) return Promise.resolve(null);
+  kakaoPromise ??= new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(CFG.kakaoKey)}&libraries=services&autoload=false`;
+    s.onload = () => {
+      try { window.kakao.maps.load(() => resolve(window.kakao)); } catch { resolve(null); }
+    };
+    s.onerror = () => {
+      console.warn('카카오 지도 SDK를 불러오지 못했어요. (JavaScript 키, 사이트 도메인 등록, 카카오맵 사용 설정 확인)');
+      resolve(null);
+    };
+    document.head.appendChild(s);
+    setTimeout(() => resolve(null), 8000);
+  });
+  return kakaoPromise;
+}
+// 대략 한국 범위 (규슈 북부 같은 바로 옆 일본 지역은 빼기)
+const isKorea = (lat, lng) => lat >= 33 && lat <= 38.7 && lng >= 124.5 && lng <= 131 && !(lng > 129.6 && lat < 35);
+const kakaoToPlace = (d) => ({
+  name: d.place_name,
+  address: d.road_address_name || d.address_name,
+  lat: Number(d.y),
+  lng: Number(d.x),
+  distance: d.distance ? Number(d.distance) : null,
+  category: KAKAO_CATS[d.category_group_code] || null,
+});
+
+/** 위치 근처 식당·카페·명소·문화시설·숙소·지하철역 (가까운 순, 최대 6곳). 카카오를 못 쓰면 null */
+async function kakaoNearby(lat, lng, radius = 150) {
+  if (!isKorea(lat, lng)) return null;
+  const k = await kakaoReady();
+  if (!k) return null;
+  const places = new k.maps.services.Places();
+  const location = new k.maps.LatLng(lat, lng);
+  const one = (code) => new Promise((res) => {
+    places.categorySearch(code, (data, status) => res(status === k.maps.services.Status.OK ? data : []),
+      { location, radius, sort: k.maps.services.SortBy.DISTANCE, size: 5 });
+  });
+  const all = (await Promise.all(Object.keys(KAKAO_CATS).map(one))).flat().map(kakaoToPlace);
+  const seen = new Set();
+  return all
+    .filter((p) => (seen.has(p.name) ? false : (seen.add(p.name), true)))
+    .sort((a, b) => (a.distance ?? 1e9) - (b.distance ?? 1e9))
+    .slice(0, 6);
+}
+
+/** 장소 이름 검색 (카카오 키워드 검색). 카카오를 못 쓰면 [] */
+async function kakaoKeyword(query) {
+  const k = await kakaoReady();
+  if (!k) return [];
+  const places = new k.maps.services.Places();
+  return new Promise((res) => {
+    places.keywordSearch(query, (data, status) => res(status === k.maps.services.Status.OK ? data.slice(0, 6).map(kakaoToPlace) : []), { size: 6 });
+  });
+}
+
+/** 장소 이름 검색: 한국 장소는 카카오 먼저, 해외는 OpenStreetMap 먼저 */
+async function geocode(query) {
+  const [kk, osm] = await Promise.all([
+    kakaoKeyword(query).catch(() => []),
+    geocodeOSM(query).catch((e) => e),
+  ]);
+  const osmList = Array.isArray(osm) ? osm : [];
+  if (!kk.length && !Array.isArray(osm)) throw osm;
+  const overseasFirst = osmList.length && !isKorea(osmList[0].lat, osmList[0].lng);
+  const merged = overseasFirst ? [...osmList, ...kk] : [...kk, ...osmList];
+  const out = [];
+  for (const p of merged) {
+    if (!out.some((o) => o.name === p.name && distM(o, p) < 300)) out.push(p);
+  }
+  return out.slice(0, 8);
+}
+
+/**
+ * 위치 → { name, candidates, pick }
+ * 한국: 카카오에서 근처 후보를 찾고, 아주 가까운 곳(식당·카페 80m, 그 밖 150m)이 있으면 그 이름
+ * 없거나 해외면 OpenStreetMap 방식 이름("○○동 근처", "이동 중" 등)
+ */
+async function placeNameAt(lat, lng) {
+  let candidates = [];
+  try { candidates = (await kakaoNearby(lat, lng)) || []; } catch { /* OSM으로 */ }
+  const pick = candidates.find((c) => c.distance != null && c.distance <= (['food', 'cafe'].includes(c.category) ? 80 : 150));
+  if (pick) return { name: pick.name, candidates, pick };
+  const name = await reverseGeocode(lat, lng).catch(() => '');
+  return { name, candidates, pick: null };
+}
+// 근처 후보 버튼들. data-cand="{prefix}{번호}"
+function candChips(cands, prefix = '', chosen = '') {
+  if (!cands?.length) return '';
+  return `<div class="cands"><span class="cands-label">근처</span>${cands.map((c, j) => `<button type="button" class="cand ${c.name === chosen ? 'on' : ''}" data-cand="${prefix}${j}">${esc(c.name)}${c.distance != null ? `<small>${c.distance}m</small>` : ''}</button>`).join('')}</div>`;
 }
 
 // ---------- 상태 ----------
@@ -1046,25 +1143,39 @@ function openBulkImport() {
     nameClusters();
   };
 
-  // 장소 이름을 위치로 자동으로 찾기 (1초에 1곳씩)
+  // 장소 이름을 위치로 자동으로 찾기 (한국은 카카오 근처 후보도 함께)
   async function nameClusters() {
     for (let i = 0; i < clusters.length; i++) {
       const c = clusters[i];
       if (c.nameTouched || c.name) continue;
-      try {
-        const name = await reverseGeocode(c.center.lat, c.center.lng);
-        if (!body.isConnected) return;
-        if (!c.nameTouched && !c.name) {
-          c.name = name || `장소 ${i + 1}`;
-          const input = body.querySelector(`[data-c="${i}"] [data-name]`);
-          if (input && !c.nameTouched) input.value = c.name;
-        }
-      } catch {
-        if (!c.name) c.name = `장소 ${i + 1}`;
-        const input = body.querySelector(`[data-c="${i}"] [data-name]`);
-        if (input && !input.value) input.value = c.name;
-      }
+      let r = { name: '', candidates: [], pick: null };
+      try { r = await placeNameAt(c.center.lat, c.center.lng); } catch { /* 이름은 직접 */ }
+      if (!body.isConnected) return;
+      c.candidates = r.candidates;
+      if (!c.nameTouched && !c.name) c.name = r.name || `장소 ${i + 1}`;
+      if (r.pick && !c.catTouched) c.category = r.pick.category || c.category;
+      const card = body.querySelector(`[data-c="${i}"]`);
+      if (!card) continue;
+      const input = card.querySelector('[data-name]');
+      if (input && !c.nameTouched) input.value = c.name;
+      const sel = card.querySelector('[data-cat]');
+      if (sel && !c.catTouched) sel.value = c.category;
+      card.querySelector('[data-cands]').innerHTML = candChips(c.candidates, `${i}:`, c.name);
     }
+  }
+  function chooseCandidate(ci, j) {
+    const c = clusters[ci];
+    const cand = c.candidates?.[j];
+    if (!cand) return;
+    c.name = cand.name;
+    c.nameTouched = true;
+    c.center = { lat: cand.lat, lng: cand.lng }; // 핀을 사진 위치 대신 가게 위치로
+    if (cand.category && !c.catTouched) c.category = cand.category;
+    const card = body.querySelector(`[data-c="${ci}"]`);
+    card.querySelector('[data-name]').value = c.name;
+    card.querySelector('[data-cat]').value = c.category;
+    card.querySelector('[data-cands]').innerHTML = candChips(c.candidates, `${ci}:`, c.name);
+    drawMap();
   }
 
   function photoCount(c) { return c.items.filter((it) => !it.off).length; }
@@ -1077,12 +1188,13 @@ function openBulkImport() {
     $('#bulkReview', body).innerHTML = `
       <div class="bulk-summary">📍 장소 <b>${clusters.length}곳</b>으로 나눴어요 · 사진 ${items.length}장${leftovers.length ? ` · 위치 없는 사진 ${leftovers.length}장` : ''}</div>
       <div id="bulkMap" class="mini-map"></div>
-      <small class="hint">사진을 누르면 빼거나 다시 넣을 수 있어요. 장소 이름은 위치로 자동으로 찾아요.</small>
+      <small class="hint">사진을 누르면 빼거나 다시 넣을 수 있어요. 장소 이름은 위치로 자동으로 찾고, ‘근처’ 후보를 누르면 그 장소로 바꿀 수 있어요.</small>
       ${clusters.map((c, i) => `<div class="bulk-card ${c.include ? '' : 'off'}" data-c="${i}">
         <div class="bulk-head">
           <label class="bulk-check"><input type="checkbox" data-inc ${c.include ? 'checked' : ''}><span class="num">${i + 1}</span></label>
           <input class="bulk-name" data-name maxlength="60" value="${esc(c.name)}" placeholder="장소 이름 찾는 중…">
         </div>
+        <div data-cands>${candChips(c.candidates, `${i}:`, c.name)}</div>
         <div class="bulk-meta">${c.start != null ? `🕒 ${fmtTime(c.start)}${c.end !== c.start ? `~${fmtTime(c.end).split(' ')[1]}` : ''} · ` : ''}사진 ${photoCount(c)}장${c.items.some((it) => it.attachedByTime) ? ' · 위치 없는 사진은 시간으로 붙임' : ''}</div>
         <div class="photo-strip">${c.items.map((it, j) => `<button type="button" class="bulk-ph ${it.off ? 'off' : ''}" data-ph="${i}:${j}"><img src="${it.preview}" alt=""></button>`).join('')}</div>
         <div class="grid2">
@@ -1143,7 +1255,7 @@ function openBulkImport() {
     const card = e.target.closest('[data-c]');
     if (!card) return;
     const c = clusters[Number(card.dataset.c)];
-    if (e.target.matches('[data-cat]')) c.category = e.target.value;
+    if (e.target.matches('[data-cat]')) { c.category = e.target.value; c.catTouched = true; }
     if (e.target.matches('[data-inc]')) {
       c.include = e.target.checked;
       card.classList.toggle('off', !c.include);
@@ -1152,6 +1264,12 @@ function openBulkImport() {
     }
   }, { signal: listeners.signal });
   body.onclick = async (e) => {
+    const cand = e.target.closest('[data-cand]');
+    if (cand) {
+      const [ci, j] = cand.dataset.cand.split(':').map(Number);
+      chooseCandidate(ci, j);
+      return;
+    }
     const ph = e.target.closest('[data-ph]');
     if (ph) {
       const [ci, pi] = ph.dataset.ph.split(':').map(Number);
@@ -1248,6 +1366,7 @@ function openAddPlace() {
       </div>
       <div class="field"><span>장소 이름</span>
         <div class="search-row"><input name="name" maxlength="60" placeholder="예: 오사카성, 공주역" enterkeyhint="search"><button type="button" id="searchBtn">검색</button></div>
+        <div id="nearby"></div>
         <div id="results" class="results"></div>
       </div>
       <div class="field"><span>위치 <small id="posLabel">지도를 눌러 선택하세요</small></span>
@@ -1292,13 +1411,36 @@ function openAddPlace() {
     if (zoom) mini.setView([lat, lng], zoom);
   }
 
+  let nearby = [];
+  let catTouched = false;
+  function setCategory(cat) {
+    const r = form.querySelector(`input[name=category][value="${cat}"]`);
+    if (r) r.checked = true;
+  }
+  // 위치로 이름 채우기 + 근처 후보 보여주기 (한국은 카카오)
   async function fillNameFrom(lat, lng) {
-    if (nameTouched || form.name.value) return;
     try {
-      const name = await reverseGeocode(lat, lng);
-      if (name && !nameTouched && !form.name.value) form.name.value = name;
+      const r = await placeNameAt(lat, lng);
+      if (!body.isConnected) return;
+      if (r.name && !nameTouched && !form.name.value) {
+        form.name.value = r.name;
+        if (r.pick?.category && !catTouched) setCategory(r.pick.category);
+      }
+      nearby = r.candidates || [];
+      $('#nearby', body).innerHTML = candChips(nearby, '', form.name.value);
     } catch { /* 이름은 직접 입력 */ }
   }
+  form.addEventListener('change', (e) => { if (e.target.name === 'category') catTouched = true; });
+  $('#nearby', body).onclick = (e) => {
+    const b = e.target.closest('[data-cand]');
+    if (!b) return;
+    const c = nearby[Number(b.dataset.cand)];
+    form.name.value = c.name;
+    nameTouched = true;
+    if (c.category && !catTouched) setCategory(c.category);
+    setPos(c.lat, c.lng, 17);
+    $('#nearby', body).innerHTML = candChips(nearby, '', c.name);
+  };
 
   function renderStrip() {
     strip.querySelectorAll('.ph').forEach((el) => el.remove());
@@ -1363,8 +1505,10 @@ function openAddPlace() {
         const r = list[Number(b.dataset.i)];
         form.name.value = r.name;
         nameTouched = true;
+        if (r.category && !catTouched) setCategory(r.category);
         setPos(r.lat, r.lng, 16);
         results.innerHTML = '';
+        $('#nearby', body).innerHTML = '';
       };
     } catch (err) { results.innerHTML = `<div class="hint">${esc(err.message)}</div>`; }
   }
