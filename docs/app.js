@@ -365,9 +365,11 @@ async function processPhoto(file) {
     && !(meta.latitude === 0 && meta.longitude === 0)
     ? { lat: meta.latitude, lng: meta.longitude } : null;
   const dt = meta?.DateTimeOriginal || meta?.CreateDate;
+  const valid = dt instanceof Date && !Number.isNaN(dt.getTime());
   return {
     photo, thumb, gps,
-    date: dt instanceof Date && !Number.isNaN(dt.getTime()) ? toYMD(dt) : null,
+    date: valid ? toYMD(dt) : null,
+    taken: valid ? dt.getTime() : null, // 찍은 시각 (한꺼번에 기록할 때 순서·묶기에 씀)
     before: file.size, after: photo.size,
     preview: URL.createObjectURL(thumb),
   };
@@ -869,7 +871,321 @@ function openEditPlace(p) {
 }
 
 // ---------- 장소 기록하기 ----------
-$('#fab').onclick = () => openAddPlace();
+$('#fab').onclick = () => {
+  if (!state.trips.length) {
+    toast('먼저 기록장을 만들어 주세요');
+    openTripForm();
+    return;
+  }
+  const body = openSheet(`<h2>무엇을 기록할까요?</h2>
+    <div class="choice-list">
+      <button class="choice" data-pick="one"><span class="ic">📍</span><span><b>장소 하나 기록</b><small>장소를 검색하거나 지도에서 골라 하나씩 남겨요</small></span></button>
+      <button class="choice" data-pick="bulk"><span class="ic">📷</span><span><b>사진으로 한꺼번에 기록</b><small>그날 사진을 한 번에 고르면 찍은 위치별로 장소를 나눠 줘요</small></span></button>
+    </div>`);
+  body.onclick = (e) => {
+    const pick = e.target.closest('[data-pick]')?.dataset.pick;
+    if (pick === 'one') openAddPlace();
+    if (pick === 'bulk') openBulkImport();
+  };
+};
+
+// 두 지점 사이 거리 (m)
+function distM(a, b) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const fmtTime = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+
+/**
+ * 사진들을 찍은 위치·시간으로 장소별로 묶어요.
+ * - 시간 순서대로 보면서, 지금 장소에서 120m 안이고 2시간 안에 찍었으면 같은 장소
+ * - 위치가 없는 사진은 찍은 시간이 가장 가까운 장소(1시간 이내)에 붙이고, 그래도 없으면 따로 모아둬요
+ */
+const SAME_PLACE_M = 120;
+const SAME_PLACE_GAP_MS = 2 * 3600e3;
+function clusterPhotos(items) {
+  const withGps = items.filter((it) => it.gps).sort((a, b) => (a.taken ?? Infinity) - (b.taken ?? Infinity));
+  const clusters = [];
+  for (const it of withGps) {
+    const cur = clusters[clusters.length - 1];
+    const gapOk = !cur || it.taken == null || cur.end == null || it.taken - cur.end <= SAME_PLACE_GAP_MS;
+    if (cur && gapOk && distM(cur.center, it.gps) <= SAME_PLACE_M) {
+      cur.items.push(it);
+      const n = cur.items.length;
+      cur.center = { lat: cur.center.lat + (it.gps.lat - cur.center.lat) / n, lng: cur.center.lng + (it.gps.lng - cur.center.lng) / n };
+      if (it.taken != null) { cur.start ??= it.taken; cur.end = it.taken; }
+    } else {
+      clusters.push({ items: [it], center: { ...it.gps }, start: it.taken, end: it.taken });
+    }
+  }
+  const leftovers = [];
+  for (const it of items.filter((x) => !x.gps)) {
+    let best = null;
+    if (it.taken != null) {
+      for (const c of clusters) {
+        if (c.start == null) continue;
+        const gap = it.taken < c.start ? c.start - it.taken : it.taken > c.end ? it.taken - c.end : 0;
+        if (gap <= 3600e3 && (!best || gap < best.gap)) best = { c, gap };
+      }
+    }
+    if (best) { best.c.items.push(it); it.attachedByTime = true; } else leftovers.push(it);
+  }
+  for (const c of clusters) c.items.sort((a, b) => (a.taken ?? Infinity) - (b.taken ?? Infinity));
+  return { clusters, leftovers };
+}
+
+// ---------- 사진으로 한꺼번에 기록 ----------
+const BULK_MAX = 60;
+function openBulkImport() {
+  const defTrip = state.filter !== 'all' ? state.filter : state.trips[0].id;
+  let items = [];
+  let clusters = [];
+  let leftovers = [];
+  let bmap = null;
+  let busy = false;
+  const listeners = new AbortController(); // 시트를 닫으면 아래 입력 감지도 같이 해제
+
+  const body = openSheet(`<h2>사진으로 한꺼번에 기록</h2>
+    <p class="muted" style="margin-top:-6px">그날 찍은 사진을 한 번에 고르면, 찍은 위치별로 장소를 나눠서 기록해 줘요.</p>
+    <label class="field"><span>기록장</span><select name="trip" id="bulkTrip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindIcon(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
+    <label class="primary pick-btn">📷 사진 고르기 (최대 ${BULK_MAX}장)<input type="file" accept="image/*" multiple hidden id="bulkInput"></label>
+    <small class="hint">아이폰은 사진 고르는 화면 위쪽 <b>옵션</b>에서 <b>위치</b>를 켜야 위치 정보가 함께 와요.</small>
+    <div id="bulkStatus" class="bulk-status hidden"></div>
+    <div id="bulkReview"></div>`, () => {
+    listeners.abort();
+    bmap?.remove();
+    items.forEach((it) => URL.revokeObjectURL(it.preview));
+  });
+
+  const status = (html) => {
+    const el = $('#bulkStatus', body);
+    el.innerHTML = html;
+    el.classList.toggle('hidden', !html);
+  };
+
+  $('#bulkInput', body).onchange = async (e) => {
+    if (busy) return;
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length) return;
+    if (files.length > BULK_MAX) toast(`한 번에 ${BULK_MAX}장까지만 정리할게요`);
+    busy = true;
+    items.forEach((it) => URL.revokeObjectURL(it.preview));
+    items = [];
+    bmap?.remove();
+    bmap = null;
+    $('#bulkReview', body).innerHTML = '';
+    const list = files.slice(0, BULK_MAX);
+    let failed = 0;
+    for (let i = 0; i < list.length; i++) {
+      status(`사진 정리 중… ${i + 1}/${list.length}`);
+      try { items.push(await processPhoto(list[i])); } catch { failed++; }
+      if (!body.isConnected) { items.forEach((it) => URL.revokeObjectURL(it.preview)); return; }
+    }
+    busy = false;
+    if (failed) toast(`열 수 없는 사진 ${failed}장은 뺐어요`);
+    if (!items.length) { status(''); return; }
+    ({ clusters, leftovers } = clusterPhotos(items));
+    if (!clusters.length) {
+      status(`<b>위치 정보가 있는 사진이 없어요.</b><br>아이폰은 사진 고르는 화면 위쪽 <b>옵션 → 위치</b>를 켜고 다시 골라 주세요.
+        안드로이드는 카메라 설정의 <b>위치 태그</b>가 켜져 있어야 해요.`);
+      return;
+    }
+    const tripKind = state.trips.find((t) => t.id === Number($('#bulkTrip', body).value))?.kind;
+    clusters.forEach((c) => {
+      c.include = true;
+      c.name = '';
+      c.nameTouched = false;
+      c.category = tripKind === 'gathering' ? 'food' : 'sight';
+      c.comment = '';
+      c.items.forEach((it) => { it.off = false; });
+    });
+    leftovers.forEach((it) => { it.off = false; });
+    status('');
+    renderReview();
+    nameClusters();
+  };
+
+  // 장소 이름을 위치로 자동으로 찾기 (1초에 1곳씩)
+  async function nameClusters() {
+    for (let i = 0; i < clusters.length; i++) {
+      const c = clusters[i];
+      if (c.nameTouched || c.name) continue;
+      try {
+        const name = await reverseGeocode(c.center.lat, c.center.lng);
+        if (!body.isConnected) return;
+        if (!c.nameTouched && !c.name) {
+          c.name = name || `장소 ${i + 1}`;
+          const input = body.querySelector(`[data-c="${i}"] [data-name]`);
+          if (input && !c.nameTouched) input.value = c.name;
+        }
+      } catch {
+        if (!c.name) c.name = `장소 ${i + 1}`;
+        const input = body.querySelector(`[data-c="${i}"] [data-name]`);
+        if (input && !input.value) input.value = c.name;
+      }
+    }
+  }
+
+  function photoCount(c) { return c.items.filter((it) => !it.off).length; }
+  function leftoverTarget() { return Number(body.querySelector('#leftTarget')?.value ?? -1); }
+
+  function renderReview() {
+    const totalPhotos = clusters.reduce((n, c) => n + (c.include ? photoCount(c) : 0), 0);
+    const places = clusters.filter((c) => c.include).length;
+    const catOpts = (sel) => Object.entries(CATS).map(([k, [ic, label]]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${ic} ${label}</option>`).join('');
+    $('#bulkReview', body).innerHTML = `
+      <div class="bulk-summary">📍 장소 <b>${clusters.length}곳</b>으로 나눴어요 · 사진 ${items.length}장${leftovers.length ? ` · 위치 없는 사진 ${leftovers.length}장` : ''}</div>
+      <div id="bulkMap" class="mini-map"></div>
+      <small class="hint">사진을 누르면 빼거나 다시 넣을 수 있어요. 장소 이름은 위치로 자동으로 찾아요.</small>
+      ${clusters.map((c, i) => `<div class="bulk-card ${c.include ? '' : 'off'}" data-c="${i}">
+        <div class="bulk-head">
+          <label class="bulk-check"><input type="checkbox" data-inc ${c.include ? 'checked' : ''}><span class="num">${i + 1}</span></label>
+          <input class="bulk-name" data-name maxlength="60" value="${esc(c.name)}" placeholder="장소 이름 찾는 중…">
+        </div>
+        <div class="bulk-meta">${c.start != null ? `🕒 ${fmtTime(c.start)}${c.end !== c.start ? `~${fmtTime(c.end).split(' ')[1]}` : ''} · ` : ''}사진 ${photoCount(c)}장${c.items.some((it) => it.attachedByTime) ? ' · 위치 없는 사진은 시간으로 붙임' : ''}</div>
+        <div class="photo-strip">${c.items.map((it, j) => `<button type="button" class="bulk-ph ${it.off ? 'off' : ''}" data-ph="${i}:${j}"><img src="${it.preview}" alt=""></button>`).join('')}</div>
+        <div class="grid2">
+          <select data-cat>${catOpts(c.category)}</select>
+          <input data-cmt maxlength="80" placeholder="한줄 코멘트 (선택)" value="${esc(c.comment)}">
+        </div>
+      </div>`).join('')}
+      ${leftovers.length ? `<div class="bulk-card">
+        <div class="bulk-head"><b>📷 위치를 모르는 사진 ${leftovers.length}장</b></div>
+        <div class="photo-strip">${leftovers.map((it, j) => `<button type="button" class="bulk-ph ${it.off ? 'off' : ''}" data-lph="${j}"><img src="${it.preview}" alt=""></button>`).join('')}</div>
+        <label class="field" style="margin:8px 0 0"><span>이 사진들을 넣을 장소</span>
+          <select id="leftTarget"><option value="-1">넣지 않기</option>${clusters.map((c, i) => `<option value="${i}">${i + 1}. ${esc(c.name || `장소 ${i + 1}`)}</option>`).join('')}</select></label>
+      </div>` : ''}
+      <button class="primary" id="bulkSave" ${places ? '' : 'disabled'}>장소 ${places}곳 · 사진 ${totalPhotos}장 기록하기</button>`;
+    drawMap();
+  }
+
+  function drawMap() {
+    setTimeout(() => {
+      const el = $('#bulkMap', body);
+      if (!el) return;
+      bmap?.remove();
+      bmap = L.map(el, { zoomControl: false, attributionControl: false });
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(bmap);
+      const pts = [];
+      clusters.forEach((c, i) => {
+        if (!c.include) return;
+        pts.push([c.center.lat, c.center.lng]);
+        L.marker([c.center.lat, c.center.lng], {
+          icon: L.divIcon({ html: `<div class="pin small">${i + 1}</div>`, className: 'pin-wrap', iconSize: [30, 30], iconAnchor: [15, 30] }),
+        }).addTo(bmap);
+      });
+      if (pts.length > 1) L.polyline(pts, { color: '#0f766e', weight: 3, opacity: 0.75, dashArray: '6 8' }).addTo(bmap);
+      if (pts.length) bmap.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
+      else bmap.setView(map.getCenter(), 6);
+    }, 50);
+  }
+
+  function updateSaveButton() {
+    const btn = $('#bulkSave', body);
+    if (!btn) return;
+    const places = clusters.filter((c) => c.include).length;
+    const total = clusters.reduce((n, c) => n + (c.include ? photoCount(c) : 0), 0)
+      + (leftoverTarget() >= 0 && clusters[leftoverTarget()]?.include ? leftovers.filter((it) => !it.off).length : 0);
+    btn.textContent = `장소 ${places}곳 · 사진 ${total}장 기록하기`;
+    btn.disabled = !places;
+  }
+
+  body.addEventListener('input', (e) => {
+    const card = e.target.closest('[data-c]');
+    if (!card) return;
+    const c = clusters[Number(card.dataset.c)];
+    if (e.target.matches('[data-name]')) { c.name = e.target.value; c.nameTouched = true; }
+    if (e.target.matches('[data-cmt]')) c.comment = e.target.value;
+  }, { signal: listeners.signal });
+  body.addEventListener('change', (e) => {
+    if (e.target.id === 'leftTarget') { updateSaveButton(); return; }
+    const card = e.target.closest('[data-c]');
+    if (!card) return;
+    const c = clusters[Number(card.dataset.c)];
+    if (e.target.matches('[data-cat]')) c.category = e.target.value;
+    if (e.target.matches('[data-inc]')) {
+      c.include = e.target.checked;
+      card.classList.toggle('off', !c.include);
+      updateSaveButton();
+      drawMap();
+    }
+  }, { signal: listeners.signal });
+  body.onclick = async (e) => {
+    const ph = e.target.closest('[data-ph]');
+    if (ph) {
+      const [ci, pi] = ph.dataset.ph.split(':').map(Number);
+      const it = clusters[ci].items[pi];
+      it.off = !it.off;
+      ph.classList.toggle('off', it.off);
+      const meta = body.querySelector(`[data-c="${ci}"] .bulk-meta`);
+      if (meta) meta.textContent = meta.textContent.replace(/사진 \d+장/, `사진 ${photoCount(clusters[ci])}장`);
+      updateSaveButton();
+      return;
+    }
+    const lph = e.target.closest('[data-lph]');
+    if (lph) {
+      const it = leftovers[Number(lph.dataset.lph)];
+      it.off = !it.off;
+      lph.classList.toggle('off', it.off);
+      updateSaveButton();
+      return;
+    }
+    if (e.target.closest('#bulkSave')) await save();
+  };
+
+  async function save() {
+    if (busy) return;
+    const tripId = Number($('#bulkTrip', body).value);
+    const target = leftoverTarget();
+    const todo = clusters
+      .map((c, i) => ({
+        c,
+        photos: [...c.items.filter((it) => !it.off), ...(i === target ? leftovers.filter((it) => !it.off) : [])]
+          .sort((a, b) => (a.taken ?? Infinity) - (b.taken ?? Infinity)),
+      }))
+      .filter((x) => x.c.include);
+    if (!todo.length) return;
+    const btn = $('#bulkSave', body);
+    busy = true;
+    btn.disabled = true;
+    let done = 0;
+    let firstId = null;
+    try {
+      for (const { c, photos } of todo) {
+        btn.textContent = `기록하는 중… ${done + 1}/${todo.length}곳`;
+        const first = photos.find((p) => p.taken != null);
+        const id = await db.createPlace(tripId, {
+          name: (c.name || '').trim() || `장소 ${done + 1}`,
+          lat: c.center.lat,
+          lng: c.center.lng,
+          visited_at: first ? toYMD(new Date(first.taken)) : today(),
+          category: c.category,
+          comment: c.comment.trim() || null,
+        }, photos.slice(0, 30));
+        firstId ??= id;
+        done++;
+      }
+      closeSheet();
+      toast(`장소 ${done}곳을 기록했어요 📷`);
+      state.filter = tripId;
+      await refresh(true);
+      switchView('map');
+    } catch (err) {
+      toast(`${done}곳까지 기록했어요. 나머지는 실패했어요: ${err.message}`);
+      btn.disabled = false;
+      btn.textContent = '다시 시도';
+      // 이미 저장된 곳은 다시 저장되지 않게 빼기
+      todo.slice(0, done).forEach(({ c }) => { c.include = false; });
+      busy = false;
+      await refresh();
+    }
+  }
+}
 
 function openAddPlace() {
   if (!state.trips.length) {
