@@ -41,7 +41,8 @@ h2 { font-size: 20px; margin: 0 0 12px; }
 /* 공통 입력 */
 .field { display: block; margin-bottom: 14px; }
 .field > span { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
-.field input, .field select {
+.field textarea { resize: vertical; min-height: 84px; line-height: 1.5; font: inherit; }
+.field input, .field select, .field textarea {
   width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px;
   background: var(--card); font-size: 16px; /* iOS 확대 방지 */
 }
@@ -232,3 +233,27 @@ main { flex: 1; position: relative; overflow: hidden; }
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .leaflet-control-attribution { font-size: 10px; }
+
+/* 이야기(긴 메모) */
+.pd-memo {
+  white-space: pre-wrap; word-break: break-word; font-size: 15px; line-height: 1.65;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 0 0 12px;
+}
+.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+
+/* 친구 한마디 */
+.cm-title { margin: 0 0 10px; font-size: 16px; }
+.cm-title small { color: var(--accent); margin-left: 4px; }
+.comments { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.cm { display: flex; gap: 10px; }
+.cm .avatar { width: 32px; height: 32px; font-size: 13px; flex: none; }
+.cm-body { flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 4px 14px 14px 14px; padding: 8px 12px; }
+.cm-head { display: flex; align-items: baseline; gap: 6px; font-size: 13px; }
+.cm-head small { color: var(--muted); font-size: 12px; }
+.cm-del { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 12px; padding: 0; }
+.cm-text { white-space: pre-wrap; word-break: break-word; font-size: 15px; margin-top: 2px; }
+.cm-form { display: flex; gap: 8px; }
+.cm-form input { flex: 1; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; font-size: 16px; background: var(--card); }
+.cm-form button { flex: none; border: 0; border-radius: 12px; padding: 0 16px; background: var(--accent); color: #fff; font-weight: 700; }
+.cm-form button:disabled { opacity: .6; }
+.empty small { font-size: 13px; }

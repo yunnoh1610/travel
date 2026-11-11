@@ -10,6 +10,23 @@ const CATS = {
 };
 const catIcon = (c) => (CATS[c] || CATS.etc)[0];
 const catLabel = (c) => (CATS[c] || CATS.etc).join(' ');
+// 기록장 종류
+const KINDS = {
+  trip: ['🧳', '여행', '예: 2026 오사카 먹방 여행'],
+  gathering: ['🎉', '모임·기념일', '예: 우정 10주년 저녁'],
+  daily: ['☕', '일상', '예: 2026 우리 동네 맛집'],
+};
+const kindIcon = (k) => (KINDS[k] || KINDS.trip)[0];
+const kindName = (k) => (KINDS[k] || KINDS.trip)[1];
+function fmtAgo(iso) {
+  const d = new Date(iso);
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return '방금';
+  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
+  if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}일 전`;
+  return `${d.getFullYear()}.${pad2(d.getMonth() + 1)}.${pad2(d.getDate())}`;
+}
 const pad2 = (n) => String(n).padStart(2, '0');
 const toYMD = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const today = () => toYMD(new Date());
@@ -129,7 +146,7 @@ const db = {
   },
   async places(filter) {
     let qb = sb.from('places')
-      .select('id, trip_id, user_id, name, lat, lng, visited_at, comment, category, created_at, author:profiles(name), trip:trips(title), photos(id, user_id, path, thumb_path)')
+      .select('id, trip_id, user_id, name, lat, lng, visited_at, comment, memo, category, created_at, author:profiles(name), trip:trips(title), photos(id, user_id, path, thumb_path), place_comments(count)')
       .order('id', { referencedTable: 'photos', ascending: true });
     if (filter !== 'all') qb = qb.eq('trip_id', filter);
     const rows = await q(qb);
@@ -138,16 +155,19 @@ const db = {
       ...r,
       author: r.author?.name || '(나간 멤버)',
       trip_title: r.trip?.title || '',
+      comment_count: r.place_comments?.[0]?.count || 0,
       photos: r.photos.map((ph) => ({ ...ph, url: urlOf(ph.path), thumb: urlOf(ph.thumb_path) })),
     }));
   },
   async createTrip(f) {
-    const row = await q(sb.from('trips').insert({ title: f.title.trim(), start_date: f.start_date || null, end_date: f.end_date || null })
-      .select('id').single());
+    const row = await q(sb.from('trips').insert(tripFields(f)).select('id').single());
     return row.id;
   },
-  updateTrip: (id, f) => qChanged(sb.from('trips')
-    .update({ title: f.title.trim(), start_date: f.start_date || null, end_date: f.end_date || null }).eq('id', id).select('id')),
+  updateTrip: (id, f) => qChanged(sb.from('trips').update(tripFields(f)).eq('id', id).select('id')),
+  listComments: (placeId) => q(sb.from('place_comments')
+    .select('id, user_id, body, created_at, author:profiles(name, username)').eq('place_id', placeId).order('id')),
+  addComment: (placeId, body) => q(sb.from('place_comments').insert({ place_id: placeId, body })),
+  deleteComment: (id) => qChanged(sb.from('place_comments').delete().eq('id', id).select('id')),
   async deleteTrip(id) {
     const ph = await q(sb.from('photos').select('path, thumb_path, places!inner(trip_id)').eq('places.trip_id', id));
     await removeFiles(ph.flatMap((x) => [x.path, x.thumb_path]));
@@ -207,6 +227,17 @@ const db = {
     return rows[0];
   },
 };
+
+// 여행은 시작일~종료일, 모임·일상은 날짜 하나
+function tripFields(f) {
+  const kind = KINDS[f.kind] ? f.kind : 'trip';
+  return {
+    title: String(f.title || '').trim(),
+    kind,
+    start_date: f.start_date || null,
+    end_date: kind === 'trip' ? (f.end_date || null) : null,
+  };
+}
 
 // ---------- 장소 검색 (OpenStreetMap Nominatim, 1초에 1번 규칙 지킴) ----------
 let nomQueue = Promise.resolve();
@@ -426,7 +457,7 @@ async function showInviteBanner() {
   if (!inviteToken) { el.classList.add('hidden'); return; }
   try {
     const inv = await db.inviteInfo(inviteToken);
-    el.innerHTML = `<b>${esc(inv.inviter)}</b>님이 <b>‘${esc(inv.title)}’</b> 여행에 초대했어요.<br>
+    el.innerHTML = `<b>${esc(inv.inviter)}</b>님이 <b>‘${esc(inv.title)}’</b> 기록장에 초대했어요.<br>
       <small>처음이면 회원가입, 이미 계정이 있으면 로그인하면 바로 참여돼요.</small>`;
     el.classList.remove('error');
     setAuthMode('signup');
@@ -444,7 +475,7 @@ async function acceptPendingInvite() {
   try {
     const r = await db.acceptInvite(token);
     state.filter = Number(r.trip_id);
-    toast(r.already ? `이미 ‘${r.title}’ 여행 멤버예요` : `‘${r.title}’ 여행에 참여했어요 🎉`);
+    toast(r.already ? `이미 ‘${r.title}’ 기록장 멤버예요` : `‘${r.title}’ 기록장에 참여했어요 🎉`);
   } catch (err) { toast(err.message); }
 }
 
@@ -493,8 +524,8 @@ async function refresh(fit = false) {
 function renderFilter() {
   const sel = $('#tripFilter');
   const total = state.trips.reduce((n, t) => n + t.place_count, 0);
-  sel.innerHTML = `<option value="all">🌏 모든 여행 (${total})</option>`
-    + state.trips.map((t) => `<option value="${t.id}">🧳 ${esc(t.title)} (${t.place_count})</option>`).join('');
+  sel.innerHTML = `<option value="all">🌏 모든 기록장 (${total})</option>`
+    + state.trips.map((t) => `<option value="${t.id}">${kindIcon(t.kind)} ${esc(t.title)} (${t.place_count})</option>`).join('');
   sel.value = String(state.filter);
 }
 $('#tripFilter').onchange = (e) => {
@@ -524,7 +555,7 @@ function renderMap(fit) {
   if (!ordered.length) {
     const msg = state.trips.length
       ? '아직 기록이 없어요. 오른쪽 아래 <b>＋</b> 버튼으로 첫 장소를 남겨보세요!'
-      : '반가워요! 먼저 <b>여행</b> 탭에서 여행을 만들고, 함께 간 친구를 초대해 보세요.';
+      : '반가워요! 먼저 아래 <b>기록장</b> 탭에서 여행이나 모임 기록장을 만들고, 함께한 친구를 초대해 보세요.';
     $('#view-map').insertAdjacentHTML('beforeend', `<div class="map-empty">${msg}</div>`);
   } else if (fit) {
     map.fitBounds(ordered.map((p) => [p.lat, p.lng]), { padding: [60, 60], maxZoom: 14 });
@@ -538,7 +569,7 @@ function placeCard(p) {
     <div class="body">
       <b>${esc(p.name)}</b>
       ${p.comment ? `<span class="comment">${esc(p.comment)}</span>` : ''}
-      <small>${catLabel(p.category)} · ${esc(p.author)}${state.filter === 'all' ? ` · ${esc(p.trip_title)}` : ''}${p.photos.length > 1 ? ` · 사진 ${p.photos.length}` : ''}</small>
+      <small>${catLabel(p.category)} · ${esc(p.author)}${state.filter === 'all' ? ` · ${esc(p.trip_title)}` : ''}${p.photos.length > 1 ? ` · 사진 ${p.photos.length}` : ''}${p.comment_count ? ` · 💬 ${p.comment_count}` : ''}${p.memo ? ' · 📝' : ''}</small>
     </div>
   </button>`;
 }
@@ -566,17 +597,17 @@ $('#timeline').onclick = (e) => {
 function renderTrips() {
   const places = state.trips.reduce((n, t) => n + t.place_count, 0);
   const friends = new Set(state.trips.flatMap((t) => t.members.map((m) => m.id)).filter((id) => id !== state.me.id));
-  $('#tripStats').innerHTML = `<div><b>${state.trips.length}</b><small>여행</small></div>
+  $('#tripStats').innerHTML = `<div><b>${state.trips.length}</b><small>기록장</small></div>
     <div><b>${places}</b><small>장소</small></div><div><b>${friends.size}</b><small>함께한 친구</small></div>`;
   $('#tripList').innerHTML = state.trips.length
     ? state.trips.map((t) => `<button class="card trip-card" data-trip="${t.id}">
-        ${t.cover ? `<img class="thumb" src="${esc(t.cover)}" alt="" loading="lazy">` : '<div class="thumb">🧳</div>'}
+        ${t.cover ? `<img class="thumb" src="${esc(t.cover)}" alt="" loading="lazy">` : `<div class="thumb">${kindIcon(t.kind)}</div>`}
         <div class="body">
           <b>${esc(t.title)}</b>
-          <small>📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳</small>
+          <small>${kindIcon(t.kind)} ${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳</small>
           <small>👥 ${t.members.map((m) => esc(m.name)).join(', ')}</small>
         </div></button>`).join('')
-    : '<div class="empty"><div class="big">🧳</div>첫 여행을 만들어 보세요</div>';
+    : '<div class="empty"><div class="big">📒</div>첫 기록장을 만들어 보세요<br><small>여행, 모임·기념일, 일상 중에 골라요</small></div>';
 }
 $('#tripList').onclick = (e) => {
   const c = e.target.closest('[data-trip]');
@@ -605,7 +636,7 @@ function passwordFields(withCurrent) {
 $('#meBtn').onclick = () => {
   const body = openSheet(`<h2>${esc(state.me.name)}</h2>
     <p class="muted">${state.me.userid
-      ? `아이디: <b>${esc(state.me.userid)}</b><br>친구가 여행에 초대할 때 이 아이디를 알려주세요.`
+      ? `아이디: <b>${esc(state.me.userid)}</b><br>친구가 기록장에 초대할 때 이 아이디를 알려주세요.`
       : esc(state.me.email)}</p>
     <div class="divider"></div>
     <h3 style="margin:0 0 12px">비밀번호 변경</h3>
@@ -683,7 +714,8 @@ function openPlace(id) {
   const p = state.places.find((x) => x.id === id);
   if (!p) return;
   const trip = state.trips.find((t) => t.id === p.trip_id);
-  const canEdit = p.user_id === state.me.id || trip?.owner_id === state.me.id;
+  const tripOwner = trip?.owner_id === state.me.id;
+  const canEdit = p.user_id === state.me.id || tripOwner;
   const body = openSheet(`
     ${p.photos.length ? `<div class="gallery">${p.photos.map((ph) => `<div class="g-item">
         <img src="${esc(ph.url)}" alt="" loading="lazy" data-full="${esc(ph.url)}">
@@ -692,18 +724,73 @@ function openPlace(id) {
     <span class="pd-cat">${catLabel(p.category)}</span>
     <h2 class="pd-name">${esc(p.name)}</h2>
     ${p.comment ? `<p class="pd-comment">${esc(p.comment)}</p>` : ''}
+    ${p.memo ? `<div class="pd-memo">${esc(p.memo)}</div>` : ''}
     <div class="pd-meta">
       <span>📅 ${fmtDate(visitKey(p))}</span>
       <span>✍️ ${esc(p.author)}</span>
-      <span>🧳 ${esc(p.trip_title)}</span>
+      <span>${kindIcon(trip?.kind)} ${esc(p.trip_title)}</span>
     </div>
     <div class="btn-row">
       <button class="btn" data-act="locate">🗺️ 지도에서 보기</button>
       <label class="btn">📷 사진 추가<input type="file" accept="image/*" multiple hidden></label>
       ${canEdit ? '<button class="btn" data-act="edit">✏️ 수정</button><button class="btn danger" data-act="delete">삭제</button>' : ''}
-    </div>`);
+    </div>
+    <div class="divider"></div>
+    <h3 class="cm-title">💬 함께한 친구들의 한마디 <small id="cmCount"></small></h3>
+    <div id="comments" class="comments"><div class="hint">불러오는 중…</div></div>
+    <form id="cmForm" class="cm-form" autocomplete="off">
+      <input name="body" maxlength="300" placeholder="이날의 한마디를 남겨 보세요" enterkeyhint="send" required>
+      <button type="submit">등록</button>
+    </form>`);
+
+  async function loadComments() {
+    const box = $('#comments', body);
+    if (!box) return;
+    try {
+      const list = await db.listComments(p.id);
+      if (!box.isConnected) return;
+      $('#cmCount', body).textContent = list.length ? String(list.length) : '';
+      box.innerHTML = list.length
+        ? list.map((c) => `<div class="cm">
+            <div class="avatar">${initial(c.author?.name)}</div>
+            <div class="cm-body">
+              <div class="cm-head"><b>${esc(c.author?.name || '(나간 멤버)')}</b><small>${fmtAgo(c.created_at)}</small>
+                ${c.user_id === state.me.id || tripOwner ? `<button class="cm-del" data-cdel="${c.id}" aria-label="한마디 지우기">지우기</button>` : ''}</div>
+              <div class="cm-text">${esc(c.body)}</div>
+            </div></div>`).join('')
+        : '<div class="hint">아직 한마디가 없어요. 첫 한마디를 남겨 보세요!</div>';
+    } catch (err) { box.innerHTML = `<div class="hint">${esc(err.message)}</div>`; }
+  }
+  loadComments();
+
+  $('#cmForm', body).onsubmit = async (e) => {
+    e.preventDefault();
+    const input = e.target.body;
+    const text = input.value.trim();
+    if (!text) return;
+    const btn = $('button[type=submit]', e.target);
+    btn.disabled = true;
+    try {
+      await db.addComment(p.id, text);
+      input.value = '';
+      p.comment_count = (p.comment_count || 0) + 1;
+      await loadComments();
+      renderTimeline();
+    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+  };
 
   body.onclick = async (e) => {
+    const cdel = e.target.closest('[data-cdel]');
+    if (cdel) {
+      if (!confirm('이 한마디를 지울까요?')) return;
+      try {
+        await db.deleteComment(Number(cdel.dataset.cdel));
+        p.comment_count = Math.max(0, (p.comment_count || 1) - 1);
+        await loadComments();
+        renderTimeline();
+      } catch (err) { toast(err.message); }
+      return;
+    }
     const img = e.target.closest('[data-full]');
     if (img) return showPhoto(img.dataset.full);
     const del = e.target.closest('[data-photo]');
@@ -760,6 +847,7 @@ function openEditPlace(p) {
     <form id="editForm">
       <label class="field"><span>장소 이름</span><input name="name" required maxlength="60" value="${esc(p.name)}"></label>
       <label class="field"><span>한줄 코멘트</span><input name="comment" maxlength="80" value="${esc(p.comment || '')}"></label>
+      <label class="field"><span>이야기 (선택)</span><textarea name="memo" maxlength="2000" rows="4" placeholder="그날 있었던 일, 나눴던 이야기">${esc(p.memo || '')}</textarea></label>
       <label class="field"><span>날짜</span><input type="date" name="visited_at" value="${esc(p.visited_at || '')}"></label>
       <div class="field"><span>종류</span>${catPicker(p.category)}</div>
       <button class="primary" type="submit">저장</button>
@@ -770,6 +858,7 @@ function openEditPlace(p) {
     try {
       await db.updatePlace(p.id, {
         name: f.name.value.trim(), comment: f.comment.value.trim() || null,
+        memo: f.memo.value.trim() || null,
         visited_at: f.visited_at.value || null, category: f.category.value,
       });
       await refresh();
@@ -784,7 +873,7 @@ $('#fab').onclick = () => openAddPlace();
 
 function openAddPlace() {
   if (!state.trips.length) {
-    toast('먼저 여행을 만들어 주세요');
+    toast('먼저 기록장을 만들어 주세요');
     openTripForm();
     return;
   }
@@ -798,7 +887,7 @@ function openAddPlace() {
 
   const body = openSheet(`<h2>장소 기록하기</h2>
     <form id="addForm" autocomplete="off">
-      <label class="field"><span>여행</span><select name="trip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select></label>
+      <label class="field"><span>기록장</span><select name="trip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindIcon(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
       <div class="field"><span>사진 <small id="photoCount"></small></span>
         <div class="photo-strip" id="strip">
           <label class="add-photo">＋<small>사진 선택</small><input type="file" accept="image/*" multiple hidden id="photoInput"></label>
@@ -816,6 +905,7 @@ function openAddPlace() {
       <label class="field"><span>날짜</span><input type="date" name="visited_at" value="${today()}"></label>
       <div class="field"><span>종류</span>${catPicker('sight')}</div>
       <label class="field"><span>한줄 코멘트 <small id="cnt">0/80</small></span><input name="comment" maxlength="80" placeholder="이곳에서의 한마디"></label>
+      <label class="field"><span>이야기 (선택)</span><textarea name="memo" maxlength="2000" rows="3" placeholder="그날 있었던 일, 나눴던 이야기를 길게 남겨도 돼요"></textarea></label>
       <button class="primary" type="submit" id="saveBtn">기록 남기기</button>
     </form>`, () => {
     mini?.remove();
@@ -961,6 +1051,7 @@ function openAddPlace() {
         visited_at: form.visited_at.value || null,
         category: form.category.value,
         comment: form.comment.value.trim() || null,
+        memo: form.memo.value.trim() || null,
       }, pending);
       closeSheet();
       toast('기록했어요 ✈️');
@@ -979,19 +1070,32 @@ function openAddPlace() {
 
 // ---------- 여행 ----------
 function openTripForm(trip) {
-  const body = openSheet(`<h2>${trip ? '여행 정보 수정' : '새 여행 만들기'}</h2>
+  const kind0 = trip?.kind || 'trip';
+  const body = openSheet(`<h2>${trip ? '기록장 정보 수정' : '새 기록장 만들기'}</h2>
     <form id="tripForm">
-      <label class="field"><span>여행 이름</span><input name="title" required maxlength="40" placeholder="예: 2025 오사카 먹방 여행" value="${esc(trip?.title || '')}"></label>
+      <div class="field"><span>종류</span><div class="cats">${Object.entries(KINDS).map(([k, [ic, label]]) => `<label>
+        <input type="radio" name="kind" value="${k}" ${k === kind0 ? 'checked' : ''}><span>${ic} ${label}</span></label>`).join('')}</div></div>
+      <label class="field"><span>이름</span><input name="title" required maxlength="40" value="${esc(trip?.title || '')}"></label>
       <div class="grid2">
-        <label class="field"><span>시작일</span><input type="date" name="start_date" value="${esc(trip?.start_date || '')}"></label>
-        <label class="field"><span>종료일</span><input type="date" name="end_date" value="${esc(trip?.end_date || '')}"></label>
+        <label class="field"><span id="startLabel">시작일</span><input type="date" name="start_date" value="${esc(trip?.start_date || '')}"></label>
+        <label class="field" id="endField"><span>종료일</span><input type="date" name="end_date" value="${esc(trip?.end_date || '')}"></label>
       </div>
       <button class="primary" type="submit">${trip ? '저장' : '만들기'}</button>
     </form>`);
-  $('#tripForm', body).onsubmit = async (e) => {
+  const tf = $('#tripForm', body);
+  // 여행은 기간, 모임·일상은 날짜 하나
+  function applyKind() {
+    const k = tf.kind.value;
+    tf.title.placeholder = KINDS[k][2];
+    $('#startLabel', body).textContent = k === 'trip' ? '시작일' : '날짜';
+    $('#endField', body).classList.toggle('hidden', k !== 'trip');
+  }
+  tf.onchange = (e) => { if (e.target.name === 'kind') applyKind(); };
+  applyKind();
+  tf.onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
-    const data = { title: f.title.value, start_date: f.start_date.value, end_date: f.end_date.value };
+    const data = { title: f.title.value, kind: f.kind.value, start_date: f.start_date.value, end_date: f.end_date.value };
     try {
       if (trip) {
         await db.updateTrip(trip.id, data);
@@ -1002,7 +1106,7 @@ function openTripForm(trip) {
         state.filter = id;
         await refresh(true);
         openTrip(id);
-        toast('여행을 만들었어요. 함께 간 친구를 초대해 보세요!');
+        toast('기록장을 만들었어요. 함께한 친구를 초대해 보세요!');
       }
     } catch (err) { toast(err.message); }
   };
@@ -1022,7 +1126,7 @@ async function copyText(text, input) {
 async function openInviteLink(trip, reset = false) {
   const inv = await db.createInvite(trip.id, reset);
   const url = `${APP_URL}?invite=${encodeURIComponent(inv.token)}`;
-  const text = `‘${trip.title}’ 여행 기록에 초대할게요! 링크를 눌러 가입하면 같이 기록할 수 있어요.`;
+  const text = `‘${trip.title}’ 기록장에 초대할게요! 링크를 눌러 가입하면 같이 기록할 수 있어요.`;
   const daysLeft = Math.max(1, Math.ceil((Date.parse(inv.expires_at) - Date.now()) / 86400000));
   const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
   const isOwner = trip.owner_id === state.me.id;
@@ -1035,7 +1139,7 @@ async function openInviteLink(trip, reset = false) {
     <div class="btn-row">
       ${navigator.share ? '<button class="btn" data-act="share">📤 공유하기</button>' : ''}
       <button class="btn" data-act="copy">📋 링크 복사</button>
-      <button class="btn" data-act="back">← 여행으로</button>
+      <button class="btn" data-act="back">← 기록장으로</button>
     </div>
     ${isOwner ? `<div class="divider"></div>
       <button class="link" data-act="reset" style="color:var(--danger)">링크 새로 만들기</button>
@@ -1044,7 +1148,7 @@ async function openInviteLink(trip, reset = false) {
   body.onclick = async (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'share') {
-      try { await navigator.share({ title: '여행 기록 초대', text, url }); } catch { /* 취소 */ }
+      try { await navigator.share({ title: '추억 기록 초대', text, url }); } catch { /* 취소 */ }
     } else if (act === 'copy') {
       const ok = await copyText(`${text}\n${url}`, $('#inviteUrl', body));
       toast(ok ? '링크를 복사했어요. 카톡에 붙여넣어 보내세요' : '복사가 안 되네요. 링크를 길게 눌러 복사해 주세요');
@@ -1064,10 +1168,10 @@ function openTrip(id) {
   const t = state.trips.find((x) => x.id === id);
   if (!t) return;
   const isOwner = t.owner_id === state.me.id;
-  const body = openSheet(`<h2>${esc(t.title)}</h2>
-    <p class="muted" style="margin-top:-6px">📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳</p>
+  const body = openSheet(`<h2>${kindIcon(t.kind)} ${esc(t.title)}</h2>
+    <p class="muted" style="margin-top:-6px">${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳</p>
     <div class="btn-row">
-      <button class="btn" data-act="view">🗺️ 이 여행 지도로 보기</button>
+      <button class="btn" data-act="view">🗺️ 지도로 보기</button>
       <button class="btn" data-act="edit">✏️ 수정</button>
     </div>
     <div class="divider"></div>
@@ -1078,15 +1182,15 @@ function openTrip(id) {
         ${isOwner && m.id !== t.owner_id ? `<button data-kick="${m.id}">내보내기</button>` : ''}
       </div>`).join('')}</div>
     <button class="primary" data-act="invite" style="margin-top:14px">🔗 초대 링크 보내기</button>
-    <small class="hint">카톡 등으로 링크를 보내면, 친구가 누르고 가입하는 즉시 이 여행에 들어와요.</small>
+    <small class="hint">카톡 등으로 링크를 보내면, 친구가 누르고 가입하는 즉시 이 기록장에 들어와요.</small>
     <form id="inviteForm" style="margin-top:14px">
       <div class="search-row"><input name="username" placeholder="이미 가입한 친구는 아이디로 초대" autocapitalize="off" autocorrect="off" required
         style="padding:12px 14px;border:1px solid var(--line);border-radius:12px;font-size:16px"><button type="submit">초대</button></div>
     </form>
     <div class="divider"></div>
     <div class="btn-row">${isOwner
-      ? '<button class="btn danger" data-act="delete">여행 삭제</button>'
-      : '<button class="btn danger" data-act="leave">이 여행에서 나가기</button>'}</div>`);
+      ? '<button class="btn danger" data-act="delete">기록장 삭제</button>'
+      : '<button class="btn danger" data-act="leave">이 기록장에서 나가기</button>'}</div>`);
 
   $('#inviteForm', body).onsubmit = async (e) => {
     e.preventDefault();
@@ -1104,7 +1208,7 @@ function openTrip(id) {
       if (act === 'invite') {
         await openInviteLink(t);
       } else if (kick) {
-        if (!confirm('이 사람을 여행에서 내보낼까요? 그 사람이 쓴 기록은 남아요. 초대 링크로 다시 들어오지 못하게 하려면 링크도 새로 만들어 주세요.')) return;
+        if (!confirm('이 사람을 기록장에서 내보낼까요? 그 사람이 쓴 기록은 남아요. 초대 링크로 다시 들어오지 못하게 하려면 링크도 새로 만들어 주세요.')) return;
         await db.removeMember(id, kick.dataset.kick);
         await refresh();
         openTrip(id);
@@ -1116,13 +1220,13 @@ function openTrip(id) {
       } else if (act === 'edit') {
         openTripForm(t);
       } else if (act === 'delete') {
-        if (!confirm(`'${t.title}' 여행의 모든 기록과 사진이 삭제돼요. 되돌릴 수 없어요. 삭제할까요?`)) return;
+        if (!confirm(`'${t.title}' 기록장의 모든 기록, 사진, 한마디가 삭제돼요. 되돌릴 수 없어요. 삭제할까요?`)) return;
         await db.deleteTrip(id);
         closeSheet();
-        toast('여행을 삭제했어요');
+        toast('기록장을 삭제했어요');
         refresh(true);
       } else if (act === 'leave') {
-        if (!confirm('이 여행에서 나갈까요?')) return;
+        if (!confirm('이 기록장에서 나갈까요?')) return;
         await db.removeMember(id, state.me.id);
         closeSheet();
         refresh(true);
