@@ -46,17 +46,25 @@ const sb = CFG.url && CFG.key && window.supabase
 const APP_URL = location.origin + location.pathname.replace(/index\.html$/, '');
 const BUCKET = 'photos';
 
+// 아이디 가입: Supabase 안에서는 "아이디@travel-diary.example.com" 으로 저장 (실제로 메일이 가지 않는 예약 주소)
+const ID_DOMAIN = 'travel-diary.example.com';
+const ID_RE = /^[a-zA-Z0-9_]{3,20}$/;
+const idToEmail = (id) => `${id.trim().toLowerCase()}@${ID_DOMAIN}`;
+// 예전에 이메일로 가입한 계정도 로그인되도록, @가 있으면 이메일로 그대로 씀
+const loginEmail = (input) => (input.includes('@') ? input.trim().toLowerCase() : idToEmail(input));
+const userIdOf = (email) => (email?.endsWith(`@${ID_DOMAIN}`) ? email.split('@')[0] : null);
+
 // Supabase 오류를 한국어로
 function korean(err) {
   const m = String(err?.message || err || '');
   const table = [
-    [/Invalid login credentials/i, '이메일 또는 비밀번호가 틀렸어요'],
-    [/already registered|already been registered|already exists/i, '이미 가입된 이메일이에요. 로그인해 주세요'],
+    [/Invalid login credentials/i, '아이디 또는 비밀번호가 틀렸어요'],
+    [/already registered|already been registered|already exists/i, '이미 사용 중인 아이디예요'],
     [/Password should be at least|password.*(short|length)/i, '비밀번호는 6자 이상이어야 해요'],
     [/should be different/i, '지금과 다른 비밀번호를 입력해 주세요'],
     [/Email not confirmed/i, '이메일 인증이 아직 안 됐어요. 메일함의 인증 링크를 눌러 주세요'],
     [/rate limit|too many|over_request/i, '시도가 너무 많아요. 잠시 후 다시 해 주세요'],
-    [/invalid.*email|email.*invalid|validate email/i, '이메일 주소를 확인해 주세요'],
+    [/invalid.*email|email.*invalid|validate email/i, '아이디는 영문·숫자·_ 3~20자로 해 주세요'],
     [/row-level security|permission denied|not authorized|Unauthorized/i, '권한이 없어요'],
     [/exceeded the maximum allowed size|Payload too large/i, '사진 용량이 너무 커요'],
     [/violates check constraint/i, '입력한 내용을 확인해 주세요 (글자 수 등)'],
@@ -104,7 +112,7 @@ const db = {
     const trips = await q(sb.from('trip_list').select('*'));
     const ids = trips.map((t) => t.id);
     const members = ids.length
-      ? await q(sb.from('trip_members').select('trip_id, user_id, profiles(name)').in('trip_id', ids))
+      ? await q(sb.from('trip_members').select('trip_id, user_id, profiles(name, username)').in('trip_id', ids))
       : [];
     await signPaths(trips.map((t) => t.cover_path));
     const key = (t) => t.start_date || (t.created_at || '').slice(0, 10);
@@ -114,7 +122,7 @@ const db = {
         place_count: Number(t.place_count) || 0,
         cover: t.cover_path ? urlOf(t.cover_path) : null,
         members: members.filter((m) => m.trip_id === t.id)
-          .map((m) => ({ id: m.user_id, name: m.profiles?.name || '?' }))
+          .map((m) => ({ id: m.user_id, name: m.profiles?.name || '?', username: m.profiles?.username || '' }))
           .sort((a, b) => a.name.localeCompare(b.name)),
       }))
       .sort((a, b) => key(b).localeCompare(key(a)) || b.id - a.id);
@@ -145,7 +153,11 @@ const db = {
     await removeFiles(ph.flatMap((x) => [x.path, x.thumb_path]));
     await qChanged(sb.from('trips').delete().eq('id', id).select('id'));
   },
-  removeMember: (tripId, userId) => qChanged(sb.from('trip_members').delete().eq('trip_id', tripId).eq('user_id', userId).select('user_id')),
+  async addMemberByUsername(tripId, username) {
+    const rows = await q(sb.rpc('add_member_by_username', { p_trip_id: tripId, p_username: username }));
+    return rows[0];
+  },
+  removeMember: (tripId, userId) =>qChanged(sb.from('trip_members').delete().eq('trip_id', tripId).eq('user_id', userId).select('user_id')),
   async createPlace(tripId, f, items) {
     const row = await q(sb.from('places').insert({ trip_id: tripId, ...f }).select('id').single());
     if (items.length) await db.uploadPhotos(tripId, row.id, items);
@@ -340,7 +352,8 @@ function setAuthMode(mode) {
   form.name.required = authMode === 'signup';
   form.password.autocomplete = authMode === 'signup' ? 'new-password' : 'current-password';
   $('button[type=submit]', form).textContent = authMode === 'signup' ? '가입하고 시작하기' : '로그인';
-  $('#forgotBtn').classList.toggle('hidden', authMode === 'signup');
+  for (const el of form.querySelectorAll('.signup-only')) el.classList.toggle('hidden', authMode !== 'signup');
+  $('#forgotHint').classList.toggle('hidden', authMode === 'signup');
 }
 $('#authTabs').onclick = (e) => {
   const b = e.target.closest('[data-mode]');
@@ -353,32 +366,26 @@ $('#authForm').onsubmit = async (e) => {
   const btn = $('button[type=submit]', f);
   btn.disabled = true;
   try {
-    const email = f.email.value.trim();
+    const userid = f.userid.value.trim();
     let session;
     if (authMode === 'signup') {
+      if (!ID_RE.test(userid)) throw new Error('아이디는 영문·숫자·_ 3~20자로 해 주세요');
       const name = f.name.value.trim();
       if (!name) throw new Error('이름을 입력해 주세요');
-      const data = await q(sb.auth.signUp({ email, password: f.password.value, options: { data: { name }, emailRedirectTo: APP_URL } }));
+      const data = await q(sb.auth.signUp({ email: idToEmail(userid), password: f.password.value, options: { data: { name } } }));
       session = data.session;
-      if (!session) {
-        toast('가입 확인 메일을 보냈어요. 메일의 링크를 누르면 로그인돼요');
-        return;
+      // Supabase가 이미 있는 아이디에 대해 오류 대신 빈 계정을 돌려주는 경우
+      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        throw new Error('이미 사용 중인 아이디예요');
       }
+      if (!session) throw new Error('가입은 됐지만 로그인이 안 됐어요. Supabase의 "Confirm email" 설정이 꺼져 있는지 확인해 주세요');
     } else {
-      session = (await q(sb.auth.signInWithPassword({ email, password: f.password.value }))).session;
+      if (!userid) throw new Error('아이디를 입력해 주세요');
+      session = (await q(sb.auth.signInWithPassword({ email: loginEmail(userid), password: f.password.value }))).session;
     }
     f.reset();
     await enterApp(session.user);
   } catch (err) { toast(err.message); } finally { btn.disabled = false; }
-};
-$('#forgotBtn').onclick = async () => {
-  if (!sb) return;
-  const email = $('#authForm').email.value.trim();
-  if (!email) return toast('위의 이메일 칸에 가입한 이메일을 먼저 입력해 주세요');
-  try {
-    await q(sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL }));
-    toast('비밀번호 재설정 메일을 보냈어요. 메일함을 확인해 주세요');
-  } catch (err) { toast(err.message); }
 };
 function showAuth() {
   closeSheet();
@@ -448,7 +455,7 @@ async function enterApp(user) {
     const p = await q(sb.from('profiles').select('name').eq('id', user.id).maybeSingle());
     if (p?.name) name = p.name;
   } catch { /* 이름은 가입 정보로 */ }
-  state.me = { id: user.id, email: user.email, name };
+  state.me = { id: user.id, email: user.email, userid: userIdOf(user.email), name };
   await showApp();
 }
 
@@ -597,11 +604,13 @@ function passwordFields(withCurrent) {
 
 $('#meBtn').onclick = () => {
   const body = openSheet(`<h2>${esc(state.me.name)}</h2>
-    <p class="muted">${esc(state.me.email)}</p>
+    <p class="muted">${state.me.userid
+      ? `아이디: <b>${esc(state.me.userid)}</b><br>친구가 여행에 초대할 때 이 아이디를 알려주세요.`
+      : esc(state.me.email)}</p>
     <div class="divider"></div>
     <h3 style="margin:0 0 12px">비밀번호 변경</h3>
     <form id="pwForm">
-      <input name="email" autocomplete="username" value="${esc(state.me.email)}" hidden>
+      <input name="username" autocomplete="username" value="${esc(state.me.userid || state.me.email)}" hidden>
       ${passwordFields(true)}
       <button class="primary" type="submit">비밀번호 바꾸기</button>
       <small class="hint">바꾸면 지금 쓰는 기기를 뺀 다른 기기에서는 로그아웃돼요.</small>
@@ -1065,16 +1074,29 @@ function openTrip(id) {
     <h3 style="margin:0 0 6px">함께한 사람 (${t.members.length})</h3>
     <div>${t.members.map((m) => `<div class="member">
         <div class="avatar">${initial(m.name)}</div>
-        <div class="grow">${esc(m.name)}${m.id === t.owner_id ? ' <small>· 만든 사람</small>' : ''}${m.id === state.me.id ? ' <small>(나)</small>' : ''}</div>
+        <div class="grow">${esc(m.name)} <small>${m.username ? `@${esc(m.username)}` : ''}${m.id === t.owner_id ? ' · 만든 사람' : ''}${m.id === state.me.id ? ' (나)' : ''}</small></div>
         ${isOwner && m.id !== t.owner_id ? `<button data-kick="${m.id}">내보내기</button>` : ''}
       </div>`).join('')}</div>
     <button class="primary" data-act="invite" style="margin-top:14px">🔗 초대 링크 보내기</button>
     <small class="hint">카톡 등으로 링크를 보내면, 친구가 누르고 가입하는 즉시 이 여행에 들어와요.</small>
+    <form id="inviteForm" style="margin-top:14px">
+      <div class="search-row"><input name="username" placeholder="이미 가입한 친구는 아이디로 초대" autocapitalize="off" autocorrect="off" required
+        style="padding:12px 14px;border:1px solid var(--line);border-radius:12px;font-size:16px"><button type="submit">초대</button></div>
+    </form>
     <div class="divider"></div>
     <div class="btn-row">${isOwner
       ? '<button class="btn danger" data-act="delete">여행 삭제</button>'
       : '<button class="btn danger" data-act="leave">이 여행에서 나가기</button>'}</div>`);
 
+  $('#inviteForm', body).onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const u = await db.addMemberByUsername(id, e.target.username.value.trim());
+      toast(`${u.name}님을 초대했어요`);
+      await refresh();
+      openTrip(id);
+    } catch (err) { toast(err.message); }
+  };
   body.onclick = async (e) => {
     const kick = e.target.closest('[data-kick]');
     const act = e.target.closest('[data-act]')?.dataset.act;

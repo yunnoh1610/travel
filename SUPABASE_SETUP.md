@@ -34,6 +34,21 @@
 3. **Create repository**
 4. Claude에게 **GitHub 아이디** 알려주기
 
+## 7. 아이디 가입으로 바꾸기 (2026-11 추가)
+SQL Editor에서 `supabase\migrate-002-username.sql` 을 한 번 실행해요. (결과: **✔ 아이디 가입 설정 완료**)
+
+## 친구가 비밀번호를 잊었을 때 (관리자가 초기화)
+아이디 가입은 이메일이 없어서 재설정 메일을 보낼 수 없어요. 대신 SQL Editor에서 아래를 실행하면
+그 친구의 비밀번호가 바뀌어요. `친구아이디`, `새비밀번호` 부분만 바꿔서 실행하고, 새 비밀번호를 친구에게 알려주세요.
+
+```sql
+update auth.users
+set encrypted_password = extensions.crypt('새비밀번호', extensions.gen_salt('bf'))
+where email = lower('친구아이디') || '@travel-diary.example.com';
+```
+
+결과에 `UPDATE 1` 이 나오면 성공이에요. (`UPDATE 0` 이면 아이디를 다시 확인해 주세요.)
+
 ## 6. (Claude가 올린 뒤) 사이트 주소 등록
 Supabase **Authentication → URL Configuration** 에서
 - **Site URL**: `https://<GitHub아이디>.github.io/travel-diary/`

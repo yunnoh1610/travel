@@ -24,12 +24,12 @@
         <button type="button" data-mode="signup">회원가입</button>
       </div>
       <form id="authForm">
-        <label class="field"><span>이메일</span><input name="email" type="email" autocomplete="email" autocapitalize="off" required></label>
+        <label class="field"><span>아이디 <small class="signup-only hidden">영문·숫자·_ 3~20자</small></span><input name="userid" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="60" required></label>
         <label class="field signup-only hidden"><span>이름 (친구들에게 보일 이름)</span><input name="name" maxlength="20" autocomplete="nickname"></label>
         <label class="field"><span>비밀번호</span><input name="password" type="password" autocomplete="current-password" minlength="6" required></label>
         <button class="primary" type="submit">로그인</button>
       </form>
-      <button type="button" class="link" id="forgotBtn">비밀번호를 잊었어요</button>
+      <small class="hint" id="forgotHint">비밀번호를 잊었다면 여행을 함께 쓰는 관리자에게 초기화를 부탁해 주세요.</small>
     </div>
   </div>
 

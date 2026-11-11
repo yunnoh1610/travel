@@ -8,8 +8,11 @@
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null check (char_length(name) between 1 and 20),
+  username text,  -- 아이디 (아이디 가입이면 "아이디@travel-diary.example.com" 의 앞부분)
   created_at timestamptz not null default now()
 );
+alter table public.profiles add column if not exists username text;
+create unique index if not exists profiles_username_key on public.profiles (lower(username));
 
 create table if not exists public.trips (
   id bigint generated always as identity primary key,
@@ -91,8 +94,12 @@ $$;
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.profiles (id, name)
-  values (new.id, left(coalesce(nullif(trim(new.raw_user_meta_data ->> 'name'), ''), split_part(new.email, '@', 1)), 20))
+  insert into public.profiles (id, name, username)
+  values (
+    new.id,
+    left(coalesce(nullif(trim(new.raw_user_meta_data ->> 'name'), ''), split_part(new.email, '@', 1)), 20),
+    case when new.email like '%@travel-diary.example.com' then split_part(new.email, '@', 1) end
+  )
   on conflict (id) do nothing;
   return new;
 end $$;
@@ -245,6 +252,22 @@ begin
   return query select v_trip, v_title, v_n = 0;
 end $$;
 
+-- 이미 가입한 친구를 아이디로 여행에 초대
+create or replace function public.add_member_by_username(p_trip_id bigint, p_username text)
+returns table (id uuid, name text, username text)
+language plpgsql security definer set search_path = public as $$
+#variable_conflict use_column
+declare v_id uuid; v_name text; v_username text;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요해요'; end if;
+  if not public.is_trip_member(p_trip_id) then raise exception '여행을 찾을 수 없어요'; end if;
+  select p.id, p.name, p.username into v_id, v_name, v_username
+    from profiles p where lower(p.username) = lower(trim(p_username));
+  if v_id is null then raise exception '그런 아이디를 가진 사람이 없어요'; end if;
+  insert into trip_members (trip_id, user_id) values (p_trip_id, v_id) on conflict do nothing;
+  return query select v_id, v_name, v_username;
+end $$;
+
 -- ---------- 회원 탈퇴 ----------
 -- 앱이 먼저 my_storage_paths() 의 사진 파일을 지운 뒤 delete_my_account() 를 불러요.
 create or replace function public.my_storage_paths() returns setof text
@@ -269,8 +292,10 @@ language sql stable as $$ select 'ok' $$;
 
 -- 함수 실행 권한
 revoke execute on function public.create_invite(bigint, boolean), public.accept_invite(text),
+  public.add_member_by_username(bigint, text),
   public.my_storage_paths(), public.delete_my_account() from public, anon;
 grant execute on function public.create_invite(bigint, boolean), public.accept_invite(text),
+  public.add_member_by_username(bigint, text),
   public.my_storage_paths(), public.delete_my_account() to authenticated;
 grant execute on function public.invite_info(text), public.ping() to anon, authenticated;
 
