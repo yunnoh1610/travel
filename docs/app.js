@@ -283,9 +283,45 @@ async function geocode(query) {
   for (const p of list) if (!kept.some((k) => k.name === p.name && near(k, p))) kept.push(p);
   return kept.slice(0, 6);
 }
+/**
+ * 위치 → 장소 이름
+ * 1) 아주 가까운(60m) 식당·카페, 또는 150m 안의 공원·관광지·역·유적 이름
+ *    (화장품 가게·미용실 같은 작은 상점은 엉뚱하게 잡히기 쉬워서 쓰지 않음)
+ * 2) 없으면 건물·장소 이름, 길 위면 길 이름 대신 "○○동 근처"
+ * 3) 고속도로 위면 "이동 중 (○○고속도로)"
+ */
+const AREA_KEYS = ['neighbourhood', 'quarter', 'suburb', 'village', 'town', 'city_district', 'borough', 'city'];
+const MOVING_ROADS = ['motorway', 'motorway_link', 'trunk', 'trunk_link'];
+const FOOD = ['restaurant', 'cafe', 'fast_food', 'bar', 'pub', 'food_court', 'ice_cream', 'biergarten'];
+const LANDMARK_CATS = ['tourism', 'leisure', 'historic', 'railway', 'public_transport', 'aeroway', 'natural'];
+function poiLimitM(p) {
+  if (p.category === 'amenity' && FOOD.includes(p.type)) return 60;
+  if (p.category === 'shop' && ['bakery', 'coffee', 'pastry', 'confectionery'].includes(p.type)) return 60;
+  if (LANDMARK_CATS.includes(p.category)) return 150;
+  if (p.category === 'amenity' && ['theatre', 'cinema', 'arts_centre'].includes(p.type)) return 60;
+  if (p.category === 'amenity' && ['place_of_worship', 'university', 'college', 'library', 'museum', 'marketplace'].includes(p.type)) return 150;
+  return 0; // 그 밖의 작은 상점·사무실은 쓰지 않음
+}
 async function reverseGeocode(lat, lng) {
-  const x = await nominatim(`reverse?zoom=17&lat=${lat}&lon=${lng}`);
-  return x.error ? '' : shortName(x);
+  try {
+    const poi = await nominatim(`reverse?zoom=18&layer=poi&lat=${lat}&lon=${lng}`);
+    const name = String(poi?.name || '').split(';')[0].trim();
+    if (!poi.error && name && distM({ lat, lng }, { lat: Number(poi.lat), lng: Number(poi.lon) }) <= poiLimitM(poi)) return name;
+  } catch { /* 아래 주소 방식으로 */ }
+  const x = await nominatim(`reverse?zoom=17&addressdetails=1&lat=${lat}&lon=${lng}`);
+  if (x.error) return '';
+  const a = x.address || {};
+  const areaKey = AREA_KEYS.find((k) => a[k]);
+  const area = areaKey ? a[areaKey] : '';
+  const name = String(x.name || '').split(';')[0].trim();
+  if (x.category === 'highway') {
+    if (MOVING_ROADS.includes(x.type)) return `이동 중${name ? ` (${name})` : ''}`;
+    // 이름 있는 광장·산책길(예: 서울역광장, 여의도공원 산책길)은 그대로, 차도 이름은 쓰지 않음
+    if (name && ['pedestrian', 'footway', 'path'].includes(x.type)) return name;
+    return area ? `${area} 근처` : name;
+  }
+  if (['place', 'boundary', 'landuse'].includes(x.category) || !name) return area ? `${area} 근처` : name;
+  return name;
 }
 
 // ---------- 상태 ----------
