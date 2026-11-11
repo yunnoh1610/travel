@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Gowun+Dodum&family=Nanum+Brush+Script&family=Nanum+Pen+Script&family=Space+Mono:wght@400;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Gowun+Dodum&display=swap">
   <link rel="stylesheet" href="app.css">
   <!-- 테마: id가 themeCss-○○ 인 파일 중 고른 것만 켜져요. 새 테마는 같은 방식으로 추가 -->
   <link rel="stylesheet" href="theme-sketch.css" id="themeCss-sketch">
@@ -26,7 +26,7 @@
       var links = document.querySelectorAll('link[id^="themeCss-"]');
       for (var i = 0; i < links.length; i++) links[i].disabled = links[i].id !== 'themeCss-' + t;
       var m = document.querySelector('meta[name=theme-color]');
-      var colors = { sketch: '#2aa7d9', passport: '#8a6d4f', basic: '#0f766e' };
+      var colors = { sketch: '#2aa7d9', passport: '#2f6f9f', basic: '#0f766e' };
       if (m) m.setAttribute('content', colors[t] || colors.sketch);
     })();
   </script>

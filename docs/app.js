@@ -24,13 +24,13 @@ const kindName = (k) => (KINDS[k] || KINDS.trip)[1];
 const THEMES = {
   sketch: { name: '청량 스케치북', icon: '✏️', desc: '하늘색·민트, 모눈 종이와 손글씨', color: '#2aa7d9', route: '#1479a8', swatch: ['#2aa7d9', '#5fd3bf', '#fff1a1', '#fbfaf4'] },
   passport: {
-    name: '여권 스크랩북', icon: '🛂', desc: '여권 도장·마스킹테이프·여행 지도', color: '#8a6d4f', route: '#f08a3c',
-    swatch: ['#e0533d', '#a9c7e3', '#8a6d4f', '#fdf3dc'],
-    // 지도 경로: 주황 선 위에 구슬처럼 이어지는 점
+    // 청량한 빈티지 트래블 스크랩북 (예전 이름: 여권 스크랩북 — 저장된 설정을 그대로 쓰려고 키는 passport 유지)
+    name: '트래블 스크랩북', icon: '✉️', desc: '청량한 빈티지 · 우표·기차표·항공 우편', color: '#2f6f9f', route: '#1f5378',
+    swatch: ['#2f6f9f', '#4a9fd8', '#7fcfc2', '#ef7f68'],
+    // 지도 경로: 흰 테두리 위 남색 점선
     routeLines: [
-      { color: '#f08a3c', weight: 4, opacity: 0.85, lineCap: 'round' },
-      { color: '#fff3d6', weight: 7, opacity: 1, dashArray: '0.1 16', lineCap: 'round' },
-      { color: '#f6a35f', weight: 3, opacity: 1, dashArray: '0.1 16', lineCap: 'round' },
+      { color: '#ffffff', weight: 7, opacity: 0.85, lineCap: 'round' },
+      { color: '#1f5378', weight: 2.8, opacity: 1, dashArray: '8 7', lineCap: 'round' },
     ],
   },
   basic: { name: '기본', icon: '🌿', desc: '차분한 초록, 깔끔한 글꼴', color: '#0f766e', route: '#0f766e', swatch: ['#0f766e', '#e6f4f1', '#ffffff', '#f6f7f5'] },
@@ -779,7 +779,7 @@ function renderTrips() {
   $('#tripStats').innerHTML = `<div><b>${state.trips.length}</b><small>기록장</small></div>
     <div><b>${places}</b><small>장소</small></div><div><b>${friends.size}</b><small>함께한 친구</small></div>`;
   $('#tripList').innerHTML = state.trips.length
-    ? state.trips.map((t) => `<button class="card trip-card" data-trip="${t.id}">
+    ? state.trips.map((t) => `<button class="card trip-card" data-trip="${t.id}" data-kind="${esc(t.kind || 'trip')}">
         ${t.cover ? `<img class="thumb" src="${esc(t.cover)}" alt="" loading="lazy">` : `<div class="thumb">${kindIcon(t.kind)}</div>`}
         <div class="body">
           <b>${esc(t.title)}</b>

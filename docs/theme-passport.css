@@ -1,272 +1,243 @@
 /* =====================================================================
-   여권 스크랩북 테마
-   - 불렛저널 스크랩북: 하얀 도트 종이, 하늘색 마스킹테이프, 파란 붓글씨 제목, 흰 테두리 사진
-   - 여행 여권 노트: 크라프트 갈색 표지 + 구릿빛 글씨, 주황빨강 단색 도장, DATE·PLACE·MEMO 칸
-   - 여행 지도: 크림색 지도, 구슬처럼 이어지는 주황 경로, 파랑·주황 핀
+   트래블 스크랩북 테마 (청량한 빈티지)
+   - 하늘색·바다색·민트 + 산호 포인트, 깨끗한 흰 모눈 종이
+   - 옛 지도, 우표, 소인, 짐 꼬리표, 기차표, 항공 우편 봉투, 사진 모서리
+   - 모든 요소는 반듯하게 (기울이기 없음)
+   - 글꼴: 나눔손글씨 갈맷글 (fonts/galmaet.woff2)
    app.css 뒤에 불러와서 색·모양만 덮어써요 (기능·배치는 그대로)
    ===================================================================== */
+@font-face {
+  font-family: "Galmaet";
+  src: url("fonts/galmaet.woff2") format("woff2");
+  font-display: swap;
+}
 :root {
-  --paper: #fbfaf6;
-  --dot: #d9d3c4;
-  --ink: #2f2b26;
-  --pencil: #cfc7b6;
-  --kraft: #8a6d4f;
-  --kraft-dark: #6f563d;
-  --copper: #f2b48a;
-  --stamp: #e0533d;           /* 여권 도장 주황빨강 */
-  --stamp-soft: #fde8e3;
-  --brush: #5b8fc7;           /* 파란 붓글씨 */
-  --washi: #a9c7e3;           /* 하늘색 마스킹테이프 */
-  --washi-soft: #e3eef8;
-  --route: #f08a3c;           /* 지도 경로 주황 */
-  --pin-blue: #4a9be0;
-  --map-cream: #fdf3dc;
+  --ink: #24364d;
+  --sky: #4a9fd8;
+  --ocean: #2f6f9f;
+  --deep: #1f5378;
+  --mint: #7fcfc2;
+  --mint-d: #3e9c8f;
+  --coral: #ef7f68;
+  --coral-d: #c9604a;
+  --aqua: #e6f3f8;
+  --paper: #fcfcf9;
+  --grid: #e3ecf1;
+  --edge: #c9dce6;
+  --tag: #9fc9df;
 
-  --accent: var(--stamp);
-  --accent-soft: var(--stamp-soft);
+  --accent: var(--sky);
+  --accent-soft: var(--aqua);
   --bg: var(--paper);
   --card: #ffffff;
   --text: var(--ink);
-  --muted: #8a8478;
-  --line: #e4ded2;
-  --danger: #c83a2a;
-  --radius: 6px;
-  --brush-font: "Nanum Brush Script", "Nanum Pen Script", cursive;
-  --pen-font: "Nanum Pen Script", cursive;
-  --label-font: "Space Mono", ui-monospace, monospace;
-  --washi-tape: repeating-linear-gradient(45deg, rgba(255, 255, 255, .38) 0 4px, transparent 4px 9px), rgba(169, 199, 227, .82);
-  --tape-edge: polygon(0 0, 3% 18%, 0 36%, 3% 54%, 0 72%, 3% 90%, 1% 100%, 99% 100%, 97% 82%, 100% 64%, 97% 46%, 100% 28%, 97% 10%, 100% 0);
+  --muted: #6f8597;
+  --line: #d6e3ea;
+  --danger: #d4543b;
+  --radius: 4px;
+  --font: "Galmaet", "Gowun Dodum", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --airmail: repeating-linear-gradient(-45deg, var(--coral) 0 10px, #fff 10px 16px, var(--sky) 16px 26px, #fff 26px 32px);
+  --corners:
+    linear-gradient(135deg, var(--deep) 11px, transparent 11px) top left / 22px 22px no-repeat,
+    linear-gradient(225deg, var(--deep) 11px, transparent 11px) top right / 22px 22px no-repeat,
+    linear-gradient(45deg, var(--deep) 11px, transparent 11px) bottom left / 22px 22px no-repeat,
+    linear-gradient(315deg, var(--deep) 11px, transparent 11px) bottom right / 22px 22px no-repeat;
 }
 
-/* ---------- 도트 종이와 글꼴 ---------- */
+/* ---------- 모눈 종이와 글꼴 ---------- */
+body, button, input, select, textarea { font-family: var(--font); }
 body {
-  font-family: "Gowun Dodum", -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  background-color: var(--paper);
-  background-image: radial-gradient(var(--dot) 1.1px, transparent 1.3px);
-  background-size: 18px 18px;
-  color: var(--ink);
+  font-size: 17px; color: var(--ink); background-color: var(--paper);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 22px 22px;
 }
-h2, .brand, .pd-name, .section-head h2 { font-family: var(--brush-font); font-weight: 400; color: var(--brush); letter-spacing: 0; }
-h2 { font-size: 34px; line-height: 1.05; }
-h3, .cm-title { font-family: var(--pen-font); font-size: 24px; font-weight: 400; color: var(--ink); }
+h2, h3, .brand, .pd-name, .tl-date, .cm-title { font-weight: 400; color: var(--ocean); }
+h2 { font-size: 30px; }
+h3 { font-size: 22px; color: var(--ink); }
+b, strong { font-weight: 400; }
 .muted, .hint { color: var(--muted); }
+.hint { font-size: 15px; }
 
-/* 작은 영문 칸 이름 느낌 (DATE · PLACE · MEMO) */
-.field > span, .cands-label, .bulk-meta, .card small, .pd-meta, .stats small {
-  font-family: var(--label-font), "Gowun Dodum", sans-serif; letter-spacing: .5px;
+/* ---------- 입력칸 ---------- */
+.field > span { font-size: 16px; font-weight: 400; color: var(--ocean); letter-spacing: .5px; }
+.field input, .field select, .field textarea, .search-row input, .cm-form input, .bulk-name, .bulk-card select, .bulk-card .grid2 input, .link-box {
+  border: 1.5px solid var(--edge); border-radius: 4px; background: #fff; font-size: 18px; color: var(--ink);
 }
-.field > span { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 400; }
-
-/* ---------- 입력칸: 밑줄 칸 ---------- */
-.field input, .field select, .search-row input, .cm-form input, .bulk-name, .bulk-card select, .bulk-card .grid2 input, .link-box {
-  border: 0; border-bottom: 1.5px solid var(--pencil); border-radius: 0; background: transparent; padding-left: 4px;
-}
-.field select, .bulk-card select { background: rgba(255, 255, 255, .6); }
 .field input:focus, .field select:focus, .field textarea:focus, .search-row input:focus, .cm-form input:focus, .bulk-name:focus {
-  outline: none; border-bottom-color: var(--brush); box-shadow: 0 2px 0 -0.5px var(--brush);
+  outline: none; border-color: var(--sky); box-shadow: 0 0 0 3px rgba(74, 159, 216, .18);
 }
 .field textarea {
-  border: 1px solid var(--line); border-radius: 4px; background-color: #fff;
-  background-image: repeating-linear-gradient(transparent, transparent 26px, var(--line) 26px, var(--line) 27px);
-  line-height: 27px; padding-top: 8px;
+  background-image: repeating-linear-gradient(transparent, transparent 27px, var(--line) 27px, var(--line) 28px);
+  line-height: 28px; padding-top: 8px;
 }
 
-/* ---------- 버튼: 도장·표지 ---------- */
-.primary {
-  background: var(--stamp); color: #fff; border: 0; border-radius: 4px; font-family: var(--label-font), "Gowun Dodum", sans-serif;
-  font-weight: 700; letter-spacing: 1px; outline: 1.5px solid var(--stamp); outline-offset: 2.5px; margin-top: 4px;
-}
+/* ---------- 버튼 ---------- */
+.primary { background: var(--sky); color: #fff; border: 0; border-bottom: 3px solid var(--ocean); border-radius: 4px; font-size: 21px; font-weight: 400; padding: 12px; }
+.primary:active { border-bottom-width: 1px; transform: translateY(2px); }
 .primary:disabled { opacity: .55; }
-.primary:active, .btn:active, .fab:active { transform: scale(.97); }
-.btn { border: 1.2px solid var(--ink); border-radius: 4px; background: #fff; font-size: 14px; }
-.btn.danger { color: var(--stamp); border-color: var(--stamp); }
-.search-row button, .cm-form button { background: var(--kraft); color: var(--copper); border-radius: 4px; font-family: var(--label-font), sans-serif; letter-spacing: .5px; }
-.chip-btn { background: var(--washi-tape); color: var(--ink); border-radius: 0; clip-path: var(--tape-edge); padding: 8px 16px; transform: rotate(-2deg); font-family: var(--pen-font); font-size: 20px; font-weight: 400; }
-.link { color: var(--brush); font-family: var(--pen-font); font-size: 20px; font-weight: 400; }
+.btn { background: #fff; color: var(--ocean); border: 1.5px solid var(--tag); border-radius: 4px; font-size: 17px; font-weight: 400; }
+.btn.danger { color: var(--danger); border-color: #f0b4a6; }
+.search-row button, .cm-form button { background: var(--ocean); color: #fff; border-radius: 4px; font-size: 19px; font-weight: 400; }
+.chip-btn { background: #fff; color: var(--ocean); border: 1.5px dashed var(--tag); border-radius: 4px; font-size: 18px; font-weight: 400; }
+.link { color: var(--ocean); font-size: 18px; font-weight: 400; }
 
-/* ---------- 로그인: 여권 표지 ---------- */
-.auth { background: #e9e1d2; }
+/* ---------- 로그인: 항공 우편 봉투 ---------- */
 .auth-card {
-  position: relative; background: var(--kraft); color: var(--copper); border-radius: 6px 14px 14px 6px;
-  padding: 30px 22px 22px; border-left: 10px solid var(--kraft-dark);
+  position: relative; background: #fff; border: 7px solid; border-image: var(--airmail) 7; padding: 30px 22px 22px;
 }
-.auth-card::before {
-  content: "HAVE A NICE TRIP"; display: block; text-align: center; font-family: var(--label-font); font-size: 12px;
-  letter-spacing: 4px; color: var(--copper); opacity: .85; margin-bottom: 6px;
+.auth-card::before { content: "Travel Scrapbook"; display: block; font-size: 18px; color: var(--muted); letter-spacing: 1px; }
+.auth-card::after { /* 우표 */
+  content: "✈"; position: absolute; top: 16px; right: 16px; width: 54px; height: 62px; display: flex; align-items: center; justify-content: center;
+  background: var(--mint); color: #fff; font-size: 26px; border: 4px dotted #fff; outline: 1.5px solid var(--edge);
 }
-.auth-card::after { /* 지구본 도장 */
-  content: "✈"; position: absolute; top: 18px; right: 18px; width: 46px; height: 46px; border-radius: 50%;
-  border: 2px solid var(--copper); display: flex; align-items: center; justify-content: center; font-size: 20px; opacity: .7;
-}
-.auth .brand { color: var(--copper); text-align: center; font-size: 44px; }
-.auth .muted { color: #e8d3bd; text-align: center; }
-.auth .field > span { color: #e8cdb4; }
-.auth .field input { color: #fff8ef; border-bottom-color: rgba(242, 180, 138, .55); }
-.auth .field input:focus { border-bottom-color: var(--copper); box-shadow: 0 2px 0 -0.5px var(--copper); }
-.auth .seg { background: rgba(0, 0, 0, .15); border-radius: 4px; }
-.auth .seg button { color: #e8cdb4; font-family: var(--label-font), sans-serif; letter-spacing: 1px; }
-.auth .seg button.on { background: var(--copper); color: var(--kraft-dark); border-radius: 3px; box-shadow: none; }
-.auth .primary { background: var(--copper); color: var(--kraft-dark); outline-color: var(--copper); }
-.auth .hint, .auth #forgotHint { color: #e3c9b1; }
-.invite-banner { background: #fff; color: var(--ink); border: 2px solid var(--stamp); border-radius: 4px; transform: rotate(-1deg); }
-.invite-banner b { color: var(--stamp); }
-.invite-banner.error { background: var(--stamp-soft); color: var(--danger); }
+.brand { font-size: 38px; color: var(--ocean); margin-top: 2px; }
+.seg { background: var(--aqua); border-radius: 4px; }
+.seg button { font-size: 19px; font-weight: 400; color: var(--muted); border-radius: 3px; }
+.seg button.on { background: #fff; color: var(--ocean); box-shadow: inset 0 -3px 0 var(--sky); }
+.invite-banner { background: var(--aqua); color: var(--ink); border: 1.5px solid var(--tag); border-radius: 4px; font-size: 16px; }
+.invite-banner b { color: var(--ocean); }
+.invite-banner.error { background: #fdece8; color: var(--danger); border-color: #f0b4a6; }
 
-/* ---------- 위: 여권 표지 / 아래: 종이 ---------- */
-.topbar { background: var(--kraft); border-bottom: 3px solid var(--kraft-dark); }
-.topbar select {
-  background: var(--paper); color: var(--ink); border: 0; border-radius: 4px; font-family: var(--label-font), "Gowun Dodum", sans-serif;
-  font-size: 14px; letter-spacing: .3px;
-}
-.avatar { background: transparent; color: var(--copper); border: 2px solid var(--copper); font-family: var(--label-font), sans-serif; }
-.cm .avatar, .member .avatar { color: var(--stamp); border-color: var(--stamp); background: #fff; }
-.tabbar { background: rgba(251, 250, 246, .96); border-top: 1px dashed var(--pencil); }
-.tabbar button { font-family: var(--label-font), "Gowun Dodum", sans-serif; font-size: 11px; letter-spacing: .5px; color: var(--muted); position: relative; }
-.tabbar button span { filter: grayscale(1) sepia(.3); opacity: .5; }
-.tabbar button.on { color: var(--ink); }
+/* ---------- 위·아래 막대 ---------- */
+.topbar { background: var(--ocean); border-bottom: 4px double #a9d4ef; }
+.topbar select { background: #fff; color: var(--ink); border: 0; border-radius: 4px; font-size: 19px; font-weight: 400; }
+.avatar { background: #fff; color: var(--ocean); border: 2px solid #a9d4ef; font-size: 20px; font-weight: 400; }
+.cm .avatar, .member .avatar { background: var(--aqua); border-color: var(--tag); font-size: 16px; }
+.tabbar { background: #fff; border-top: 4px double var(--line); }
+.tabbar button { font-size: 17px; font-weight: 400; color: #9aaab7; }
+.tabbar button span { filter: grayscale(1); opacity: .45; }
+.tabbar button.on { color: var(--ocean); }
 .tabbar button.on span { filter: none; opacity: 1; }
-.tabbar button.on::before { /* 마스킹테이프 */
-  content: ""; position: absolute; top: 8px; left: 50%; width: 56px; height: 22px; transform: translateX(-50%) rotate(-3deg);
-  background: var(--washi-tape); clip-path: var(--tape-edge); z-index: -1;
-}
-.fab { /* 고무 도장 */
-  background: #fff; color: var(--stamp); border: 3px solid var(--stamp); outline: 2px solid var(--stamp); outline-offset: 3px;
-  box-shadow: none; font-size: 30px; font-weight: 700;
+.tabbar button.on::after { content: ""; width: 32px; height: 3px; border-radius: 2px; background: var(--sky); margin-top: 1px; }
+.fab { /* 도장 */
+  background: var(--sky); color: #fff; border: 2px dashed #fff; outline: 3px solid var(--sky); outline-offset: 3px;
+  box-shadow: none; font-size: 32px; font-weight: 400;
 }
 
-/* ---------- 지도: 크림색, 파랑·주황 핀 ---------- */
-#map, .mini-map { background: var(--map-cream); }
-.leaflet-tile-pane { filter: sepia(.38) saturate(.75) brightness(1.06) contrast(.92) hue-rotate(-6deg); }
-.mini-map { border: 1px solid var(--pencil); border-radius: 4px; }
-.pin { border: 3px solid var(--pin-blue); box-shadow: 0 3px 6px rgba(74, 155, 224, .35); }
-.pin-wrap::after { border-top-color: var(--pin-blue); }
-.leaflet-marker-icon:nth-of-type(3n+1) .pin { border-color: var(--route); box-shadow: 0 3px 6px rgba(240, 138, 60, .35); }
-.leaflet-marker-icon:nth-of-type(3n+1).pin-wrap::after { border-top-color: var(--route); }
-.pin-num { background: var(--route); border: 2px solid #fff; font-family: var(--label-font), sans-serif; }
-.pin.small { background: var(--route); border-color: #fff; color: #fff; font-family: var(--label-font), sans-serif; }
-.map-empty { background: #fff; border-radius: 3px; border: 1px solid var(--line); transform: rotate(-.6deg); font-size: 14px; }
-.map-empty::before {
-  content: ""; position: absolute; top: -9px; left: 50%; width: 80px; height: 20px; transform: translateX(-50%) rotate(-3deg);
-  background: var(--washi-tape); clip-path: var(--tape-edge);
+/* ---------- 지도: 청량한 옛 지도 + 우표 핀 ---------- */
+#map, .mini-map { background: #cfe8f1; }
+/* 지도를 살짝 바래게 하고, 아래의 연한 하늘색 바탕이 비쳐 보이게 (청량한 옛 지도 느낌) */
+.leaflet-tile-pane { filter: grayscale(.35) saturate(.85) brightness(1.04) contrast(.92); opacity: .82; }
+.mini-map { border: 1.5px solid var(--edge); border-radius: 4px; }
+.pin { /* 우표 */
+  width: 44px; height: 48px; border-radius: 0; background: #fff; padding: 3px;
+  border: 3px dotted #fff; outline: 1.5px solid var(--edge); box-shadow: 0 2px 6px rgba(36, 54, 77, .25);
 }
+.pin img { border-radius: 0; }
+.pin-wrap::after { border-top-color: var(--ocean); bottom: -10px; }
+.pin-num {
+  top: -8px; right: -8px; min-width: 22px; height: 20px; border-radius: 3px; background: var(--deep); color: #fff; border: 2px solid #fff;
+  font-family: var(--font); font-size: 14px; font-weight: 400;
+}
+.pin.small { width: 30px; height: 30px; border-radius: 3px; padding: 0; background: var(--deep); color: #fff; border: 2px solid #fff; outline: none; font-family: var(--font); font-size: 17px; font-weight: 400; }
+.map-empty { background: #fff; border: 1.5px solid var(--line); border-left: 6px solid var(--sky); border-radius: 4px; font-size: 16px; }
 
-/* ---------- 카드: 흰 테두리 사진 + 마스킹테이프 ---------- */
-.tl-date {
-  font-family: var(--brush-font); font-weight: 400; font-size: 32px; color: var(--brush); margin: 26px 0 8px; line-height: 1;
+/* ---------- 타임라인 ---------- */
+.tl-date { font-size: 24px; margin: 24px 0 10px; padding-bottom: 4px; border-bottom: 2px dashed var(--edge); }
+.card { background: #fff; border: 1.5px solid var(--line); border-radius: 4px; padding: 12px; box-shadow: none; }
+.card .thumb { /* 우표 */
+  border-radius: 0; background: var(--aqua); border: 3px dotted #fff; outline: 1.5px solid var(--edge); padding: 0;
 }
-.card {
-  position: relative; background: #fff; border: 1px solid var(--line); border-radius: 3px;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, .04), 0 6px 14px -10px rgba(60, 40, 20, .35); padding: 12px; overflow: visible;
-}
-.card:nth-child(odd) { transform: rotate(-.5deg); }
-.card:nth-child(even) { transform: rotate(.4deg); }
-.card::before { /* 사진 위에 붙인 테이프 */
-  content: ""; position: absolute; top: -8px; left: 22px; width: 54px; height: 18px; transform: rotate(-8deg);
-  background: var(--washi-tape); clip-path: var(--tape-edge); z-index: 2;
-}
-.card .thumb { border-radius: 0; border: 4px solid #fff; outline: 1px solid var(--line); background: var(--washi-soft); box-shadow: 0 2px 4px rgba(0, 0, 0, .08); }
-.card b { font-family: "Gowun Dodum", sans-serif; font-size: 17px; font-weight: 700; }
-.card .comment { font-family: var(--pen-font); font-size: 20px; line-height: 1.1; color: #4a4339; }
-.card small { font-size: 10.5px; color: var(--muted); }
-.empty { font-family: var(--pen-font); font-size: 24px; }
+.card b { font-size: 22px; font-weight: 400; line-height: 1.15; }
+.card .comment { font-size: 18px; line-height: 1.25; }
+.card small { font-size: 14px; color: var(--muted); }
+.empty { font-size: 21px; }
 
-/* 기록장 목록: 방문 증명(VISIT PASS) 도장 */
-.trip-card { border: 2px solid var(--stamp); }
-.trip-card::before { background: var(--washi-tape); }
-.trip-card::after {
-  content: "VISIT PASS"; position: absolute; right: 10px; bottom: 8px; font-family: var(--label-font); font-size: 10px; font-weight: 700;
-  letter-spacing: 1.5px; color: var(--stamp); border: 1.5px solid var(--stamp); padding: 1px 6px; transform: rotate(-6deg); opacity: .85;
+/* ---------- 기록장: 기차표 ---------- */
+.section-head h2 { font-size: 32px; }
+.trip-card { position: relative; border: 1.5px solid var(--tag); border-left: 8px solid var(--sky); padding-right: 64px; }
+.trip-card::after { /* 뜯는 쪽 */
+  content: "ADMIT ONE"; position: absolute; top: 0; right: 0; bottom: 0; width: 50px; border-left: 2px dashed var(--tag);
+  display: flex; align-items: center; justify-content: center; writing-mode: vertical-rl; font-size: 15px; letter-spacing: 1px; color: var(--ocean);
 }
-.trip-card b { color: var(--ink); }
-.stats div { /* 여권 도장 */
-  background: transparent; border: 2px solid var(--brush); border-radius: 50%; aspect-ratio: 1 / 1; max-width: 104px; margin: 0 auto;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6px;
+.trip-card[data-kind="gathering"] { border-color: #a6dcd2; border-left-color: var(--mint); }
+.trip-card[data-kind="gathering"]::after { border-left-color: #a6dcd2; color: var(--mint-d); }
+.trip-card[data-kind="daily"] { border-color: #f3b9ab; border-left-color: var(--coral); }
+.trip-card[data-kind="daily"]::after { border-left-color: #f3b9ab; color: var(--coral-d); }
+.stats { gap: 12px; }
+.stats div { /* 우표 3장 */
+  background: var(--sky); color: #fff; border: 4px dotted #fff; outline: 1.5px solid var(--edge); border-radius: 0; padding: 10px 6px;
 }
-.stats div:nth-child(1) { border-color: var(--stamp); color: var(--stamp); transform: rotate(-8deg); }
-.stats div:nth-child(2) { border-color: var(--brush); border-radius: 14px; transform: rotate(4deg); }
-.stats div:nth-child(3) { border-color: var(--kraft); border-radius: 45% / 35%; transform: rotate(-3deg); }
-.stats b { font-family: var(--label-font), sans-serif; font-size: 24px; color: inherit; }
-.stats div:nth-child(2) b { color: var(--brush); }
-.stats div:nth-child(3) b { color: var(--kraft); }
-.stats small { font-size: 10px; }
+.stats div:nth-child(2) { background: var(--mint); }
+.stats div:nth-child(3) { background: var(--deep); }
+.stats b { color: #fff; font-size: 32px; font-weight: 400; line-height: 1; }
+.stats small { color: rgba(255, 255, 255, .92); font-size: 15px; }
 
-/* ---------- 바텀 시트: 저널 페이지 ---------- */
-.sheet-backdrop { background: rgba(70, 52, 34, .35); }
+/* ---------- 바텀 시트 ---------- */
+.sheet-backdrop { background: rgba(31, 83, 120, .3); }
 .sheet-body {
-  background-color: var(--paper); background-image: radial-gradient(var(--dot) 1.1px, transparent 1.3px); background-size: 18px 18px;
-  border-radius: 10px 10px 0 0; padding-top: 0; overflow-x: hidden;
+  background-color: var(--paper);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 22px 22px; border-top: 4px double var(--edge); border-radius: 14px 14px 0 0;
 }
-.grabber { /* 페이지를 붙인 테이프 */
-  width: 90px; height: 24px; margin: -4px auto 12px; border-radius: 0; transform: rotate(-2deg);
-  background: var(--washi-tape); clip-path: var(--tape-edge);
-}
-.sheet-close { background: #fff; border: 1.2px solid var(--ink); color: var(--ink); }
-.sheet-body > h2 { margin-right: 40px; }
+.grabber { background: var(--tag); }
+.sheet-close { background: #fff; border: 1.5px solid var(--tag); color: var(--ocean); }
 
 /* ---------- 기록 상세 ---------- */
-.g-item { padding: 10px 2px; }
-.g-item img { border-radius: 0; border: 8px solid #fff; border-bottom-width: 28px; outline: 1px solid var(--line); box-shadow: 0 6px 14px -8px rgba(60, 40, 20, .45); }
-.g-item:nth-child(odd) img { transform: rotate(-1.2deg); }
-.g-item:nth-child(even) img { transform: rotate(1deg); }
-.g-item::before {
-  content: ""; position: absolute; top: 2px; left: 50%; width: 70px; height: 20px; transform: translateX(-50%) rotate(-4deg);
-  background: var(--washi-tape); clip-path: var(--tape-edge); z-index: 3;
+.g-item { padding: 6px; background: var(--corners); }
+.g-item img { border-radius: 0; border: 9px solid #fff; outline: 1px solid var(--line); background: #fff; }
+.pd-cat { background: #fff; color: var(--ocean); border: 1.5px solid var(--tag); border-radius: 3px; font-size: 16px; font-weight: 400; }
+.pd-name { /* 짐 꼬리표 */
+  position: relative; display: inline-block; max-width: 100%; margin: 10px 0 8px; padding: 22px 20px 8px 34px;
+  background: var(--aqua); font-size: 30px; line-height: 1.1; color: var(--ink);
+  clip-path: polygon(18px 0, 100% 0, 100% 100%, 18px 100%, 0 50%);
 }
-.pd-cat { /* 도장 */
-  background: transparent; color: var(--stamp); border: 1.8px solid var(--stamp); border-radius: 3px; font-family: var(--label-font), sans-serif;
-  font-size: 11px; letter-spacing: 1px; transform: rotate(-3deg); padding: 2px 8px;
+.pd-name::before { /* 끈 구멍 */
+  content: ""; position: absolute; left: 13px; top: 50%; width: 10px; height: 10px; margin-top: -5px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 0 2px var(--tag);
 }
-.pd-name { font-size: 40px; line-height: 1.05; margin: 6px 0 4px; }
-.pd-comment {
-  font-family: var(--pen-font); font-size: 25px; line-height: 1.15; background: none; border: 0; border-radius: 0; padding: 0 2px; color: #3e3830;
+.pd-name::after { content: "DESTINATION"; position: absolute; left: 34px; top: 4px; font-size: 13px; letter-spacing: 1px; color: var(--ocean); }
+.pd-comment { background: #fff; border: 0; border-left: 5px solid var(--sky); border-radius: 0; font-size: 21px; line-height: 1.3; }
+.pd-memo { /* 항공 우편 */
+  position: relative; background: #fff; border: 6px solid; border-image: var(--airmail) 6; border-radius: 0;
+  padding: 26px 14px 12px; font-size: 18px; line-height: 1.5; margin-top: 12px;
 }
-.pd-comment::before { content: "— "; color: var(--brush); }
-.pd-memo {
-  position: relative; background-color: #fff; border: 1px solid var(--line); border-radius: 3px; padding: 22px 14px 12px;
-  background-image: repeating-linear-gradient(transparent, transparent 26px, var(--line) 26px, var(--line) 27px); background-position: 0 21px;
-  line-height: 27px; margin-top: 10px;
-}
-.pd-memo::before {
-  content: "MEMO"; position: absolute; top: 4px; left: 14px; font-family: var(--label-font); font-size: 10px; letter-spacing: 2px; color: var(--muted);
-}
-.pd-meta { font-size: 11.5px; }
-.divider { height: 0; background: none; border-top: 1px dashed var(--pencil); }
+.pd-memo::before { content: "MEMO"; position: absolute; top: 6px; left: 14px; font-size: 14px; letter-spacing: 1px; color: var(--muted); }
+.pd-meta { font-size: 15px; }
+.divider { height: 0; background: none; border-top: 2px dashed var(--edge); }
 .member { border-bottom: 1px dashed var(--line); }
+.member .grow { font-size: 18px; }
+.member button { font-size: 16px; font-weight: 400; }
 
-/* ---------- 친구 한마디: 쪽지 ---------- */
-.cm-title small { color: #fff; background: var(--stamp); border-radius: 50%; padding: 0 7px; font-family: var(--label-font); font-size: 12px; }
-.cm-body { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 2px; box-shadow: 0 4px 10px -8px rgba(60, 40, 20, .5); }
-.cm:nth-child(odd) .cm-body { transform: rotate(-.6deg); }
-.cm:nth-child(even) .cm-body { transform: rotate(.5deg); background: #fffbea; }
-.cm-head b { font-family: var(--label-font), "Gowun Dodum", sans-serif; font-size: 12px; letter-spacing: .5px; }
-.cm-text { font-family: var(--pen-font); font-size: 21px; line-height: 1.15; color: #3e3830; }
+/* ---------- 친구 한마디 ---------- */
+.cm-title { font-size: 22px; }
+.cm-title small { background: var(--sky); color: #fff; border-radius: 3px; padding: 0 6px; font-size: 15px; }
+.cm-body { background: #fff; border: 1.5px solid var(--line); border-top: 5px solid var(--mint); border-radius: 0; }
+.cm:nth-child(even) .cm-body { border-top-color: var(--sky); }
+.cm-head b { font-size: 16px; font-weight: 400; color: var(--mint-d); }
+.cm:nth-child(even) .cm-head b { color: var(--ocean); }
+.cm-head small, .cm-del { font-size: 14px; }
+.cm-text { font-size: 19px; line-height: 1.3; }
 
-/* ---------- 고르기 칩: 마스킹테이프 ---------- */
-.cats label span, .cand {
-  border: 0; border-radius: 0; background: var(--washi-soft); clip-path: var(--tape-edge); padding: 7px 14px;
-  font-family: "Gowun Dodum", sans-serif; font-size: 13.5px;
-}
-.cats label input:checked + span, .cand.on { background: var(--stamp); color: #fff; font-weight: 700; }
-.cand.on small { color: rgba(255, 255, 255, .85); }
+/* ---------- 고르기 칩 ---------- */
+.cats label span, .cand { background: #fff; border: 1.5px solid var(--edge); border-radius: 4px; font-size: 17px; }
+.cand { font-size: 16px; }
+.cats label input:checked + span, .cand.on { background: var(--sky); color: #fff; border-color: var(--sky); font-weight: 400; }
+.cand.on small { color: rgba(255, 255, 255, .9); }
+.cand small { font-size: 13px; }
+.cands-label { font-size: 15px; font-weight: 400; color: var(--ocean); }
 
-/* ---------- 사진 넣기 ---------- */
-.add-photo { border: 1.5px dashed var(--pencil); border-radius: 0; background: #fff; color: var(--muted); font-family: var(--pen-font); font-size: 28px; }
-.add-photo small { font-size: 17px; }
-.photo-strip img, .bulk-ph img { border-radius: 0; border: 4px solid #fff; outline: 1px solid var(--line); }
-.results button, .choice, .bulk-card { background: #fff; border: 1px solid var(--line); border-radius: 3px; box-shadow: 0 6px 14px -12px rgba(60, 40, 20, .5); }
-.choice .ic { filter: sepia(.2); }
-.choice:nth-child(1) { border-left: 4px solid var(--brush); }
-.choice:nth-child(2) { border-left: 4px solid var(--stamp); }
-.choice b { font-family: var(--pen-font); font-size: 24px; font-weight: 400; }
-.bulk-status { background: #fff; border: 1.5px solid var(--stamp); border-radius: 3px; }
-.bulk-summary { font-family: var(--pen-font); font-size: 22px; }
-.bulk-check .num { background: var(--route); border-radius: 50%; font-family: var(--label-font), sans-serif; }
-.bulk-name { font-size: 17px; }
+/* ---------- 사진 넣기·한꺼번에 기록 ---------- */
+.add-photo { border: 2px dashed var(--tag); border-radius: 4px; background: #fff; color: var(--ocean); }
+.add-photo small { font-size: 15px; }
+.photo-strip img, .bulk-ph img { border-radius: 0; border: 3px dotted #fff; outline: 1.5px solid var(--edge); }
+.results button, .choice, .bulk-card { background: #fff; border: 1.5px solid var(--line); border-radius: 4px; box-shadow: none; }
+.results button b, .choice b { font-size: 20px; font-weight: 400; }
+.results small, .choice small { font-size: 14px; }
+.choice { border-left: 6px solid var(--sky); }
+.choice:nth-child(2) { border-left-color: var(--mint); }
+.bulk-status { background: var(--aqua); border: 1.5px solid var(--tag); border-radius: 4px; font-size: 16px; }
+.bulk-summary { font-size: 19px; }
+.bulk-check .num { background: var(--deep); border-radius: 3px; font-size: 16px; font-weight: 400; }
+.bulk-name { font-size: 19px; }
+.bulk-meta { font-size: 14px; }
 
 /* ---------- 테마 고르기 ---------- */
-.theme-opt { border-radius: 3px; border: 1px solid var(--line); }
-.theme-opt.on { box-shadow: none; border: 2px solid var(--stamp); background: var(--stamp-soft); }
-.theme-txt b { font-family: var(--pen-font); font-size: 22px; font-weight: 400; }
+.theme-opt { border: 1.5px solid var(--line); border-radius: 4px; }
+.theme-opt.on { border-color: var(--sky); box-shadow: inset 0 0 0 1px var(--sky); background: var(--aqua); }
+.theme-txt b { font-size: 20px; font-weight: 400; }
+.theme-txt small { font-size: 14px; }
+.theme-opt.on .theme-check { background: var(--sky); }
 
 /* ---------- 알림 ---------- */
-.toast { background: var(--kraft); color: #fff4e8; font-family: var(--label-font), "Gowun Dodum", sans-serif; font-size: 13px; border-radius: 4px; }
+.toast { background: var(--deep); font-size: 17px; border-radius: 4px; }
