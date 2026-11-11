@@ -267,3 +267,10 @@ h2 { font-size: 27px; }
 
 /* ---------- 알림 ---------- */
 .toast { background: var(--ink); font-family: var(--hand); font-size: 18px; border-radius: var(--wobble-s); box-shadow: 3px 3px 0 rgba(42, 167, 217, .6); }
+
+/* ---------- 화면 테마 고르기 ---------- */
+.theme-opt { border: 2px solid #9db6c6; border-radius: var(--wobble-s); }
+.theme-opt.on { border-color: var(--ink); box-shadow: var(--sketch-shadow); background: var(--accent-soft); }
+.theme-opt .swatch { border: 2px solid var(--ink); border-radius: 6px; transform: rotate(-3deg); }
+.theme-txt b { font-family: var(--hand); font-size: 20px; }
+.theme-opt.on .theme-check { background: var(--lemon); color: var(--ink); border: 2px solid var(--ink); font-family: var(--hand); }

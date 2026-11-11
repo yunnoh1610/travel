@@ -14,7 +14,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Gowun+Dodum&display=swap">
   <link rel="stylesheet" href="app.css">
-  <link rel="stylesheet" href="theme-sketch.css">
+  <!-- 테마: id가 themeCss-○○ 인 파일 중 고른 것만 켜져요. 새 테마는 같은 방식으로 추가 -->
+  <link rel="stylesheet" href="theme-sketch.css" id="themeCss-sketch">
+  <script>
+    // 저장해 둔 테마를 화면을 그리기 전에 적용 (깜빡임 방지). 기본은 청량 스케치북
+    (function () {
+      var t = 'sketch';
+      try { t = localStorage.getItem('travelTheme') || 'sketch'; } catch (e) {}
+      document.documentElement.dataset.theme = t;
+      var links = document.querySelectorAll('link[id^="themeCss-"]');
+      for (var i = 0; i < links.length; i++) links[i].disabled = links[i].id !== 'themeCss-' + t;
+      var m = document.querySelector('meta[name=theme-color]');
+      if (m) m.setAttribute('content', t === 'basic' ? '#0f766e' : '#2aa7d9');
+    })();
+  </script>
 </head>
 <body>
   <!-- 로그인 -->

@@ -18,6 +18,33 @@ const KINDS = {
 };
 const kindIcon = (k) => (KINDS[k] || KINDS.trip)[0];
 const kindName = (k) => (KINDS[k] || KINDS.trip)[1];
+
+// 화면 테마 (내 정보에서 고르기)
+// css 파일은 index.html 의 <link id="themeCss-키">. 'basic'은 테마 파일 없이 기본 디자인
+const THEMES = {
+  sketch: { name: '청량 스케치북', icon: '✏️', desc: '하늘색·민트, 모눈 종이와 손글씨', color: '#2aa7d9', route: '#1479a8', swatch: ['#2aa7d9', '#5fd3bf', '#fff1a1', '#fbfaf4'] },
+  basic: { name: '기본', icon: '🌿', desc: '차분한 초록, 깔끔한 글꼴', color: '#0f766e', route: '#0f766e', swatch: ['#0f766e', '#e6f4f1', '#ffffff', '#f6f7f5'] },
+};
+const THEME_KEY = 'travelTheme';
+let currentTheme = THEMES[document.documentElement.dataset.theme] ? document.documentElement.dataset.theme : 'sketch';
+const routeColor = () => (THEMES[currentTheme] || THEMES.sketch).route;
+function applyTheme(t) {
+  if (!THEMES[t]) t = 'sketch';
+  currentTheme = t;
+  document.documentElement.dataset.theme = t;
+  document.querySelectorAll('link[id^="themeCss-"]').forEach((l) => { l.disabled = l.id !== `themeCss-${t}`; });
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', THEMES[t].color);
+  try { localStorage.setItem(THEME_KEY, t); } catch { /* 저장 불가 */ }
+  if (typeof map !== 'undefined' && map && state.me) renderMap(false); // 지도 경로선 색
+}
+function themePicker() {
+  return `<div class="theme-list">${Object.entries(THEMES).map(([k, t]) => `
+    <button type="button" class="theme-opt ${k === currentTheme ? 'on' : ''}" data-theme-pick="${k}">
+      <span class="swatch">${t.swatch.map((c) => `<i style="background:${c}"></i>`).join('')}</span>
+      <span class="theme-txt"><b>${t.icon} ${t.name}</b><small>${t.desc}</small></span>
+      <span class="theme-check">${k === currentTheme ? '✓' : ''}</span>
+    </button>`).join('')}</div>`;
+}
 function fmtAgo(iso) {
   const d = new Date(iso);
   const diff = (Date.now() - d.getTime()) / 1000;
@@ -622,6 +649,9 @@ async function enterApp(user) {
     if (p?.name) name = p.name;
   } catch { /* 이름은 가입 정보로 */ }
   state.me = { id: user.id, email: user.email, userid: userIdOf(user.email), name };
+  // 계정에 저장된 테마가 있으면 이 기기에도 적용 (다른 기기에서 바꾼 테마 따라가기)
+  const savedTheme = user.user_metadata?.theme;
+  if (savedTheme && THEMES[savedTheme] && savedTheme !== currentTheme) applyTheme(savedTheme);
   await showApp();
 }
 
@@ -684,7 +714,7 @@ function renderMap(fit) {
   });
   if (single && ordered.length > 1) {
     L.polyline(ordered.map((p) => [p.lat, p.lng]), {
-      color: '#1479a8', weight: 3.5, opacity: 0.8, dashArray: '2 9', lineCap: 'round', interactive: false,
+      color: routeColor(), weight: 3.5, opacity: 0.8, dashArray: '2 9', lineCap: 'round', interactive: false,
     }).addTo(markerLayer);
   }
   if (!ordered.length) {
@@ -774,6 +804,10 @@ $('#meBtn').onclick = () => {
       ? `아이디: <b>${esc(state.me.userid)}</b><br>친구가 기록장에 초대할 때 이 아이디를 알려주세요.`
       : esc(state.me.email)}</p>
     <div class="divider"></div>
+    <h3 style="margin:0 0 10px">화면 테마</h3>
+    <div id="themeBox">${themePicker()}</div>
+    <small class="hint">고르면 바로 바뀌어요. 내 계정에 저장돼서 다른 기기에서도 같은 테마로 보여요.</small>
+    <div class="divider"></div>
     <h3 style="margin:0 0 12px">비밀번호 변경</h3>
     <form id="pwForm">
       <input name="username" autocomplete="username" value="${esc(state.me.userid || state.me.email)}" hidden>
@@ -786,6 +820,15 @@ $('#meBtn').onclick = () => {
       <button class="btn" id="logoutBtn">로그아웃</button>
       <button class="btn danger" id="leaveBtn">회원 탈퇴</button>
     </div>`);
+  $('#themeBox', body).onclick = async (e) => {
+    const b = e.target.closest('[data-theme-pick]');
+    if (!b || b.dataset.themePick === currentTheme) return;
+    applyTheme(b.dataset.themePick);
+    $('#themeBox', body).innerHTML = themePicker();
+    toast(`${THEMES[currentTheme].icon} ${THEMES[currentTheme].name} 테마로 바꿨어요`);
+    // 계정에 저장 (실패해도 이 기기에는 적용돼 있음)
+    try { await q(sb.auth.updateUser({ data: { theme: currentTheme } })); } catch { /* 다음에 다시 */ }
+  };
   $('#pwForm', body).onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -1227,7 +1270,7 @@ function openBulkImport() {
           icon: L.divIcon({ html: `<div class="pin small">${i + 1}</div>`, className: 'pin-wrap', iconSize: [30, 30], iconAnchor: [15, 30] }),
         }).addTo(bmap);
       });
-      if (pts.length > 1) L.polyline(pts, { color: '#1479a8', weight: 3.5, opacity: 0.8, dashArray: '2 9', lineCap: 'round' }).addTo(bmap);
+      if (pts.length > 1) L.polyline(pts, { color: routeColor(), weight: 3.5, opacity: 0.8, dashArray: '2 9', lineCap: 'round' }).addTo(bmap);
       if (pts.length) bmap.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
       else bmap.setView(map.getCenter(), 6);
     }, 50);
