@@ -210,3 +210,17 @@ test('계획 추가(ADD): 추가만 받고, 겹치는 시간 표시, 동선 거�
   assert.ok(p.includes('"transport": "WALK"'));
   assert.ok(p.includes('"lat": 36.46'));
 });
+
+test('Phase 2 — AI 추천 이유(reason): 스키마에 있고, 정리해서 남기고, 없으면 null', () => {
+  const props = GENERATE_SCHEMA.properties.days.items.properties.items.items;
+  assert.ok(props.required.includes('reason'));
+  assert.ok(props.properties.reason);
+  const r = normalizeGenerated({
+    days: [{ date: '2026-11-21', items: [item({ reason: '  해 질 녘 성곽 산책이 좋아요  ' }), item({ title: '저녁', type: 'MEAL', startTime: '18:00', endTime: '19:00', reason: '' })] }],
+    warnings: [],
+  }, range);
+  assert.equal(r.days[0].items[0].reason, '해 질 녘 성곽 산책이 좋아요');
+  assert.equal(r.days[0].items[1].reason, null);
+  const long = normalizeGenerated({ days: [{ date: '2026-11-21', items: [item({ reason: '가'.repeat(200) })] }], warnings: [] }, range);
+  assert.ok(long.days[0].items[0].reason.length <= LIMITS.reason);
+});

@@ -373,3 +373,40 @@ canvas.sb-deco { display: block; width: 100%; height: 100%; }
 .cover-pick input { display: none; }
 .cover-pick img, .cover-pick .cover-auto { display: flex; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-sm); border: 3px solid transparent; align-items: center; justify-content: center; text-align: center; font-size: 12px; background: var(--accent-soft); color: var(--accent); font-weight: 700; line-height: 1.2; }
 .cover-pick input:checked + img, .cover-pick input:checked + .cover-auto { border-color: var(--accent); }
+
+/* ===== Phase 2: 일정 상태 (예정 / 방문 완료 / 취소) · 동행자 · 지도 일정 핀 ===== */
+.pst { display: inline-block; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: var(--radius-chip); background: var(--accent-soft); color: var(--accent); }
+.pst.done { background: #e3f7ec; color: #0b7a44; }
+.pst.cancelled { background: #eceff0; color: #6b7280; }
+.plan-item.st-done { border-left: 4px solid #2fa36b; }
+.plan-item.st-cancelled { opacity: .62; }
+.plan-item.st-cancelled .pi-title b { text-decoration: line-through; }
+.pi-who { font-size: 12px; color: var(--muted); }
+.pi-rec { align-self: flex-start; border: 0; background: #e3f7ec; color: #0b7a44; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: var(--radius-chip); cursor: pointer; text-align: left; }
+.pi-tools .done-btn { color: #0b7a44; font-weight: 900; font-size: 15px; }
+.pi-tools .done-btn:disabled { opacity: .35; }
+.pi-tools.four { grid-template-columns: 40px 40px; }
+@media (min-width: 520px) { .pi-tools.four { grid-template-columns: 44px 44px 44px 44px; } }
+.pd-meta .pst { align-self: flex-start; }
+.who-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.who-pick .chk { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-chip); background: var(--card); font-size: 14px; cursor: pointer; }
+.who-pick .chk:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.pin.small.st-done { background: #2fa36b; }
+.pin.small.st-cancelled { background: #b8b8b8; opacity: .7; }
+/* 지도: 계획 일정 핀 (예정 = 점선 테두리, 완료 = 초록, 취소 = 회색) */
+.pin.plan-pin { width: 34px; height: 34px; font-size: 15px; border: 2.5px dashed var(--accent); background: var(--card); }
+.pin.plan-pin.done { border: 2.5px solid #2fa36b; }
+.pin.plan-pin.cancelled { border-color: #aaa; filter: grayscale(1); opacity: .6; }
+.pin.plan-pin img, .pin.plan-pin img.ic { width: 20px; height: 20px; object-fit: contain; }
+.pin-num.plan { background: #fff; color: var(--accent); border-color: var(--accent); font-size: 10px; min-width: 26px; height: 18px; top: -8px; right: -12px; }
+.map-bar { position: absolute; left: 12px; right: 12px; top: 12px; z-index: 450; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; pointer-events: none; }
+.map-bar > * { pointer-events: auto; }
+.map-bar .mini-seg { margin: 0; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+.map-bar .mini-seg button { flex: none; padding: 8px 12px; white-space: nowrap; }
+.map-bar select { padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius-chip); background: var(--card); font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.12); max-width: 180px; }
+.add-plan-pop .leaflet-popup-content { margin: 8px; }
+.add-plan-pop .leaflet-popup-content-wrapper { border-radius: var(--radius); }
+.pi-reason { font-size: 12.5px; color: var(--accent); font-weight: 600; }
+.who-pick .chk { flex: none; white-space: nowrap; }
+.who-pick .chk span { display: inline; margin: 0; font-size: 14px; font-weight: inherit; color: inherit; }
+.who-pick .chk input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }

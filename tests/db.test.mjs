@@ -57,6 +57,8 @@ before(async () => {
   await db.exec(sql('migrate-006-scrapbook-design.sql'));
   await db.exec(sql('migrate-007-trip-info.sql'));
   await db.exec(sql('migrate-007-trip-info.sql'));
+  await db.exec(sql('migrate-008-plan-status.sql'));
+  await db.exec(sql('migrate-008-plan-status.sql'));
 
   for (const [id, name] of [[A, 'aa'], [B, 'bb'], [C, 'cc']]) {
     await db.query("insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, jsonb_build_object('name', $3::text))",
@@ -286,6 +288,18 @@ test('007: 여행 국가·도시·유형·대표 사진 (같은 여행 사진만
   assert.notEqual((await rows(B, 'select cover_path from trip_list where id = $1', [trip]))[0].cover_path, `${trip}/cover_t.jpg`);
 });
 
+test('008: 일정 상태(예정/완료/취소)·동행자(여행 멤버만)', async () => {
+  const it = (await rows(B, "insert into itinerary_items (trip_id, day_date, title, start_time) values ($1, '2026-11-22', '야경 보기', '19:00') returning id, status", [trip]))[0];
+  assert.equal(it.status, 'PLANNED', '새 일정은 예정');
+  assert.equal((await rows(A, "update itinerary_items set status = 'CANCELLED' where id = $1 returning status", [it.id]))[0].status, 'CANCELLED');
+  await fails(A, "update itinerary_items set status = 'MAYBE' where id = $1", [it.id], /check constraint/);
+  assert.deepEqual((await rows(A, 'update itinerary_items set assignees = $1 where id = $2 returning assignees', [[A, B], it.id]))[0].assignees, [A, B]);
+  await fails(A, 'update itinerary_items set assignees = $1 where id = $2', [[A, C], it.id], /여행 멤버만/);
+  assert.equal((await rows(C, "update itinerary_items set status = 'DONE' where id = $1 returning id", [it.id])).length, 0, '남은 못 고침');
+  // 상태를 바꿔도 계획 시간은 그대로
+  assert.equal((await rows(B, 'select start_time from itinerary_items where id = $1', [it.id]))[0].start_time, '19:00:00');
+});
+
 test('멤버가 나가면 새 자료도 못 봄 (TC-15)', async () => {
   assert.ok((await rows(B, 'select id from itinerary_items where trip_id = $1', [trip])).length > 0);
   await rows(B, 'delete from trip_members where trip_id = $1 and user_id = $2', [trip, B]);
@@ -306,8 +320,8 @@ test('되돌리기 SQL 이 기존 테이블을 남기고 새 테이블만 지움
   const x = new PGlite();
   await x.exec(SUPABASE_STUB);
   for (const f of ['schema.sql', 'migrate-002-username.sql', 'migrate-003-memories.sql', 'migrate-004-planner-scrapbook.sql',
-    'migrate-005-record-time-plan-link.sql', 'migrate-006-scrapbook-design.sql', 'migrate-007-trip-info.sql',
-    'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
+    'migrate-005-record-time-plan-link.sql', 'migrate-006-scrapbook-design.sql', 'migrate-007-trip-info.sql', 'migrate-008-plan-status.sql',
+    'rollback-008-plan-status.sql', 'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
     'rollback-005-record-time-plan-link.sql', 'rollback-004-planner-scrapbook.sql']) {
     await x.exec(sql(f));
   }

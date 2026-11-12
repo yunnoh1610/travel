@@ -172,7 +172,7 @@
         <button class="chip-btn" data-act="edit-trip" style="margin-top:12px">📅 날짜 정하기</button></div>`;
     }
     const list = dayItems(P.day);
-    const unknownCost = list.filter((i) => PLACE_TYPES.includes(i.item_type) && i.cost_estimate == null).length;
+    const unknownCost = list.filter((i) => PLACE_TYPES.includes(i.item_type) && i.cost_estimate == null && planSt(i) !== 'CANCELLED').length;
     // 일정 추가(주 동작) + AI 일정 도우미(만들기·추가·수정 요청을 한곳에)
     const actions = `<div class="plan-actions">
         <button type="button" class="btn-main" data-act="add-item">＋ 일정 추가</button>
@@ -201,22 +201,30 @@
     return '<span class="vbadge warn" title="실제 장소와 맞춰 보지 못했어요. 방문 전에 확인해 주세요">⚠ 미확인 장소</span>';
   }
 
+  const memberName = (id) => trip()?.members.find((m) => m.id === id)?.name;
   function itemHtml(it, idx, n) {
     const time = it.start_time ? `${hhmm(it.start_time)}${it.end_time ? `<br><small>~${hhmm(it.end_time)}</small>` : ''}` : '<small>시간<br>미정</small>';
-    return `<li class="plan-item" data-item="${it.id}">
+    const st = planSt(it);
+    const recs = recordsOfPlan(it.id);
+    const who = (it.assignees || []).map(memberName).filter(Boolean);
+    return `<li class="plan-item st-${st.toLowerCase()}" data-item="${it.id}">
       <div class="pi-time">${time}</div>
       <div class="pi-body">
         <div class="pi-title">${typeIcon(it.item_type)} <b>${esc(it.title)}</b></div>
         <div class="pi-meta">
+          ${st !== 'PLANNED' ? planStBadge(it) : ''}
           <span>${typeLabel(it.item_type)}</span>
           ${it.place_name && it.place_name !== it.title ? `<span>📍 ${esc(it.place_name)}</span>` : ''}
           ${it.cost_estimate != null ? `<span>💰 ${money(it.cost_estimate, it.currency)}${it.source === 'AI' && !it.user_edited ? ' (AI 추정)' : ''}</span>` : ''}
           ${vBadge(it)}
           ${it.source === 'AI' ? `<span class="vbadge ai" title="AI가 만든 일정${it.user_edited ? ' · 직접 고침' : ''}">AI${it.user_edited ? '·고침' : ''}</span>` : ''}
         </div>
+        ${who.length ? `<div class="pi-who">👤 ${who.map(esc).join(', ')}</div>` : ''}
         ${it.notes ? `<div class="pi-notes">${esc(it.notes)}</div>` : ''}
+        ${recs.map((p) => `<button type="button" class="pi-rec" data-rec="${p.id}">📷 실제 ${p.visited_time ? `${hhmm(p.visited_time)} 방문` : '방문'} · ${esc(p.name)} <span aria-hidden="true">›</span></button>`).join('')}
       </div>
-      <div class="pi-tools">
+      <div class="pi-tools ${state.v008 ? 'four' : ''}">
+        ${state.v008 ? `<button class="icon-btn done-btn" data-done ${st === 'PLANNED' ? '' : 'disabled'} aria-label="방문 완료" title="방문 완료">✓</button>` : ''}
         <button class="icon-btn" data-move="-1" ${idx === 0 ? 'disabled' : ''} aria-label="위로">▲</button>
         <button class="icon-btn" data-move="1" ${idx === n - 1 ? 'disabled' : ''} aria-label="아래로">▼</button>
         <button class="icon-btn" data-edit aria-label="수정">✏️</button>
@@ -228,15 +236,16 @@
     const box = $('#planMap');
     if (!box) return;
     const pts = dayItems(P.day).map((it, i) => ({ ...it, no: i + 1 })).filter((i) => i.lat != null);
+    const route = pts.filter((p) => planSt(p) !== 'CANCELLED');
     setTimeout(() => {
       if (!box.isConnected) return;
       dayMap = L.map(box, { zoomControl: false, attributionControl: false, scrollWheelZoom: false });
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(dayMap);
       pts.forEach((p) => L.marker([p.lat, p.lng], {
-        icon: L.divIcon({ html: `<div class="pin small ${p.verification_status === 'VERIFIED' ? '' : 'unverified'}">${p.no}</div>`, className: 'pin-wrap', iconSize: [30, 30], iconAnchor: [15, 30] }),
+        icon: L.divIcon({ html: `<div class="pin small ${p.verification_status === 'VERIFIED' ? '' : 'unverified'} st-${planSt(p).toLowerCase()}">${planSt(p) === 'DONE' ? '✓' : p.no}</div>`, className: 'pin-wrap', iconSize: [30, 30], iconAnchor: [15, 30] }),
         title: p.title,
       }).addTo(dayMap));
-      if (pts.length > 1) drawRoute(pts.map((p) => [p.lat, p.lng]), dayMap);
+      if (route.length > 1) drawRoute(route.map((p) => [p.lat, p.lng]), dayMap);
       dayMap.fitBounds(pts.map((p) => [p.lat, p.lng]), { padding: [30, 30], maxZoom: 15, animate: false });
     }, 30);
   }
@@ -253,6 +262,7 @@
     };
     let unknown = 0;
     for (const it of P.items) {
+      if (planSt(it) === 'CANCELLED') continue; // 취소한 일정은 예산에서 빼요
       if (it.cost_estimate == null) { if (PLACE_TYPES.includes(it.item_type)) unknown++; continue; }
       add(it.currency, TYPE_TO_CAT[it.item_type] || 'ETC', 'est', Number(it.cost_estimate) * n); // 일정 비용은 1인 기준
     }
@@ -328,6 +338,9 @@
       const item = e.target.closest('[data-item]');
       if (item && e.target.closest('[data-move]')) { await moveItem(Number(item.dataset.item), Number(e.target.closest('[data-move]').dataset.move)); return; }
       if (item && e.target.closest('[data-edit]')) { openItemForm(P.items.find((x) => x.id === Number(item.dataset.item))); return; }
+      if (item && e.target.closest('[data-done]')) { openPlanDone(P.items.find((x) => x.id === Number(item.dataset.item))); return; }
+      const rec = e.target.closest('[data-rec]');
+      if (rec) { openPlace(Number(rec.dataset.rec)); return; }
       const exp = e.target.closest('[data-exp]');
       if (exp) { openExpenseForm(P.expenses.find((x) => x.id === Number(exp.dataset.exp))); return; }
       const ckdel = e.target.closest('[data-ckdel]');
@@ -371,11 +384,31 @@
   }
 
   // ---------- 일정 추가·수정 ----------
-  function openItemForm(it) {
+  const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  /** 같은 날 시간이 겹치는 일정 (취소한 일정 빼고). 끝 시간이 없으면 30분으로 봐요 */
+  function overlapping(day, start, end, selfId) {
+    if (!start) return [];
+    const a0 = toMin(start);
+    const a1 = end ? toMin(end) : a0 + 30;
+    return dayItems(day).filter((x) => x.id !== selfId && x.start_time && planSt(x) !== 'CANCELLED').filter((x) => {
+      const b0 = toMin(hhmm(x.start_time));
+      const b1 = x.end_time ? toMin(hhmm(x.end_time)) : b0 + 30;
+      return a0 < Math.max(b1, b0 + 1) && b0 < Math.max(a1, a0 + 1);
+    });
+  }
+
+  /**
+   * opts (새 일정): { place: {place_name, lat, lng, …}, title, placeId, lookup }
+   * — 지도에서 고른 위치·기록한 장소로 일정을 만들 때
+   */
+  function openItemForm(it, opts = {}) {
     const t = trip();
     const days = tripDays(t);
-    let place = it ? { place_name: it.place_name, address: it.address, lat: it.lat, lng: it.lng, verification_status: it.verification_status } : null;
-    let placeTouched = false; // 장소를 바꾸지 않으면 검증 상태(미확인 등)를 그대로 둠
+    let place = it ? { place_name: it.place_name, address: it.address, lat: it.lat, lng: it.lng, verification_status: it.verification_status }
+      : opts.place ? { ...opts.place } : null;
+    let placeTouched = !it && !!opts.place; // 장소를 바꾸지 않으면 검증 상태(미확인 등)를 그대로 둠
+    const members = t.members || [];
+    const showWho = state.v008 && members.length > 1;
     const tripPlaces = state.places.filter((p) => p.trip_id === P.tripId);
     const body = openSheet(`<h2>${it ? '일정 수정' : '일정 추가'}</h2>
       <form id="itemForm" autocomplete="off">
@@ -383,7 +416,7 @@
           <label class="field"><span>날짜</span><select name="day_date">${days.map((d, i) => `<option value="${d}" ${d === (it?.day_date || P.day) ? 'selected' : ''}>${i + 1}일차 ${short(d)} (${wday(d)})</option>`).join('')}</select></label>
           <label class="field"><span>종류</span><select name="item_type">${Object.entries(ITYPES).map(([k, [e, l]]) => `<option value="${k}" ${k === (it?.item_type || 'PLACE') ? 'selected' : ''}>${e} ${l}</option>`).join('')}</select></label>
         </div>
-        <label class="field"><span>일정 이름 <small>80자</small></span><input name="title" maxlength="80" required value="${esc(it?.title || '')}" placeholder="예: 공산성 산책"></label>
+        <label class="field"><span>일정 이름 <small>80자</small></span><input name="title" maxlength="80" required value="${esc(it?.title || opts.title || '')}" placeholder="예: 공산성 산책"></label>
         <div class="grid2">
           <label class="field"><span>시작 시간</span><input type="time" name="start_time" value="${hhmm(it?.start_time)}"></label>
           <label class="field"><span>종료 시간</span><input type="time" name="end_time" value="${hhmm(it?.end_time)}"></label>
@@ -393,15 +426,21 @@
           <div class="search-row"><input name="q" maxlength="60" placeholder="장소 이름 검색" enterkeyhint="search"><button type="button" id="plSearch">검색</button></div>
           <div id="plResults" class="results"></div>
           ${tripPlaces.length ? `<label class="field" style="margin:8px 0 0"><span>기록한 장소와 연결</span><select name="place_id"><option value="">연결 안 함</option>
-            ${tripPlaces.map((p) => `<option value="${p.id}" ${p.id === it?.place_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : ''}
+            ${tripPlaces.map((p) => `<option value="${p.id}" ${p.id === (it ? it.place_id : opts.placeId) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : ''}
         </div>
         <div class="grid2">
           <label class="field"><span>1인 예상 비용</span><input type="number" name="cost" min="0" step="any" inputmode="decimal" value="${it?.cost_estimate ?? ''}" placeholder="모르면 비워 두기"></label>
           <label class="field"><span>통화</span><input name="currency" maxlength="3" value="${esc(it?.currency || 'KRW')}" autocapitalize="characters"></label>
         </div>
         <label class="field"><span>메모</span><textarea name="notes" maxlength="500" rows="2">${esc(it?.notes || '')}</textarea></label>
+        ${showWho ? `<div class="field"><span>함께 가는 사람 <small>안 고르면 모두 함께</small></span><div class="who-pick">
+          ${members.map((m) => `<label class="chk"><input type="checkbox" name="who" value="${m.id}" ${it?.assignees?.includes(m.id) ? 'checked' : ''}><span>${esc(m.name)}</span></label>`).join('')}</div></div>` : ''}
+        ${it && state.v008 ? `<label class="field"><span>상태</span><select name="status">
+          ${Object.entries(PLAN_ST).map(([k, l]) => `<option value="${k}" ${k === planSt(it) ? 'selected' : ''}>${k === 'DONE' ? '✓ ' : ''}${l}</option>`).join('')}</select></label>` : ''}
         <button class="primary" type="submit">${it ? '저장' : '추가'}</button>
-        ${it ? '<button type="button" class="btn danger" id="itemDel" style="margin-top:10px;width:100%">이 일정 삭제</button>' : ''}
+        ${it ? `<div class="btn-row" style="margin-top:10px">
+          <button type="button" class="btn" id="itemDup">⧉ 복제 <small>(고른 날짜에)</small></button>
+          <button type="button" class="btn danger" id="itemDel">이 일정 삭제</button></div>` : ''}
       </form>`);
     const f = $('#itemForm', body);
     const showPlace = () => {
@@ -412,6 +451,15 @@
       if (c) c.onclick = () => { place = null; placeTouched = true; showPlace(); };
     };
     showPlace();
+    // 지도에서 고른 위치: 이름을 찾아 채워 봐요
+    if (opts.lookup && place?.lat != null && typeof placeNameAt === 'function') {
+      placeNameAt(place.lat, place.lng).then((r) => {
+        if (!body.isConnected || !r?.name || !place || place.place_name !== opts.place.place_name) return;
+        place.place_name = r.name;
+        if (!f.title.value.trim()) f.title.value = r.name;
+        showPlace();
+      }).catch(() => { /* 이름은 직접 */ });
+    }
     async function search() {
       const qv = f.q.value.trim() || f.title.value.trim();
       if (!qv) return toast('검색할 장소 이름을 입력해 주세요');
@@ -459,6 +507,19 @@
         verification_status: status,
         cost_estimate: cost, currency, notes: f.notes.value.trim() || null,
       };
+      if (state.v008) {
+        if (f.status) row.status = f.status.value;
+        if (showWho) {
+          const who = [...f.querySelectorAll('input[name=who]:checked')].map((x) => x.value);
+          row.assignees = who.length && who.length < members.length ? who : null;
+        }
+      }
+      // 시간 겹침 안내 (새 일정이거나 날짜·시간을 바꿨을 때만)
+      const timeChanged = !it || it.day_date !== row.day_date || hhmm(it.start_time) !== (start || '') || hhmm(it.end_time) !== (end || '');
+      if (timeChanged && (row.status || planSt(it)) !== 'CANCELLED') {
+        const hits = overlapping(row.day_date, start, end, it?.id);
+        if (hits.length && !confirm(`이 시간에 다른 일정이 있어요.\n${hits.map((x) => `· ${hhmm(x.start_time)}${x.end_time ? `~${hhmm(x.end_time)}` : ''} ${x.title}`).join('\n')}\n\n그대로 저장할까요?`)) return;
+      }
       const btn = $('button[type=submit]', f);
       btn.disabled = true;
       try {
@@ -473,6 +534,26 @@
         await reload();
         toast(it ? '일정을 저장했어요' : '일정을 추가했어요');
       } catch (err) { toast(err.message); btn.disabled = false; }
+    };
+    const dup = $('#itemDup', body);
+    if (dup) dup.onclick = async () => {
+      const day = f.day_date.value;
+      const max = dayItems(day).reduce((m, x) => Math.max(m, x.sort_order), 0);
+      const copy = {
+        trip_id: P.tripId, day_date: day, sort_order: max + 1, item_type: it.item_type, title: it.title,
+        start_time: it.start_time, end_time: it.end_time, place_id: it.place_id, place_name: it.place_name, address: it.address,
+        lat: it.lat, lng: it.lng, verification_status: it.verification_status, cost_estimate: it.cost_estimate,
+        currency: it.currency, notes: it.notes,
+      };
+      if (state.v008 && it.assignees?.length) copy.assignees = it.assignees;
+      dup.disabled = true;
+      try {
+        await pq(sb.from('itinerary_items').insert(copy).select('id'));
+        closeSheet();
+        P.day = day;
+        await reload();
+        toast(`${short(day)} 일정 맨 뒤에 복제했어요`);
+      } catch (err) { toast(err.message); dup.disabled = false; }
     };
     const del = $('#itemDel', body);
     if (del) del.onclick = async () => {
@@ -606,7 +687,8 @@
               ${PLACE_TYPES.includes(it.type) && it.placeQuery ? (it.verificationStatus === 'VERIFIED' ? '<span class="vbadge ok">✓ 장소 확인</span>' : '<span class="vbadge warn">⚠ 미확인 장소</span>') : ''}
               ${it.estimatedCost != null ? `<span>💰 약 ${money(it.estimatedCost, it.currency)} (AI 추정)</span>` : ''}
             </span>
-            ${it.notes ? `<span class="pi-notes">${esc(it.notes)}</span>` : ''}</span>
+            ${it.notes ? `<span class="pi-notes">${esc(it.notes)}</span>` : ''}
+            ${it.reason ? `<span class="pi-reason">💬 ${esc(it.reason)}</span>` : ''}</span>
         </label>`).join('') : '<div class="hint">이날은 제안이 없어요</div>'}</div>`).join('')}
       <div class="sticky-actions">
         <button class="primary" id="draftApply">선택한 일정 ${chosen.size}개 저장</button>
@@ -926,7 +1008,7 @@
               ${it.estimatedCost != null ? `<span>💰 약 ${money(it.estimatedCost, it.currency)} (AI 추정)</span>` : ''}
               ${o.conflict ? '<span class="vbadge warn">⚠ 지금 일정과 시간이 겹쳐요</span>' : ''}
             </span>
-            ${o.reason ? `<span class="pi-notes">💬 ${esc(o.reason)}</span>` : ''}</span>
+            ${o.reason || it.reason ? `<span class="pi-reason">💬 ${esc(o.reason || it.reason)}</span>` : ''}</span>
         </label>`;
       }).join('') : '<div class="empty small">추천할 일정을 찾지 못했어요. 요청을 조금 바꿔 보세요.</div>'}
       <div class="sticky-actions">
@@ -1049,6 +1131,18 @@
       openItemForm(P.items.find((x) => x.id === item.id) || item);
     }),
     addManual: guard(async (tripId) => { await ensure(tripId); openItemForm(null); }),
+    /** 지도에서 고른 위치·기록한 장소를 일정으로: at = { lat, lng, name?, placeId?, day? } */
+    addAt: guard(async (tripId, at) => {
+      await ensure(tripId);
+      const days = tripDays(trip());
+      if (!days.length) { toast('여행 날짜를 먼저 정해 주세요'); return; }
+      if (at.day && days.includes(at.day)) P.day = at.day;
+      if (!days.includes(P.day)) P.day = days.includes(today()) ? today() : days[0];
+      openItemForm(null, {
+        place: { place_name: at.name || '지도에서 고른 위치', address: null, lat: at.lat, lng: at.lng, verification_status: at.name ? 'VERIFIED' : 'MANUAL' },
+        title: at.name || '', placeId: at.placeId, lookup: !at.name,
+      });
+    }),
     addWithAI: guard(async (tripId) => { await ensure(tripId); openAiAdd(); }),
   };
 
@@ -1059,6 +1153,12 @@
     // 여행을 바꾸거나 여행 정보(날짜)를 고친 뒤
     if (state.view === 'timeline') load(true);
     else P.loadedFor = null;
+  });
+  // 지도에서 일정 상태를 바꾼 뒤
+  window.addEventListener('travel:plans', async () => {
+    if (state.view !== 'timeline' || !P.tripId) { P.loadedFor = null; return; }
+    try { await loadTrip(P.tripId); } catch (err) { P.error = err; P.loadedFor = null; }
+    render();
   });
   window.addEventListener('online', () => { if (state.view === 'timeline') render(); });
   window.addEventListener('offline', () => { if (state.view === 'timeline') render(); });

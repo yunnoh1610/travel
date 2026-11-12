@@ -12,6 +12,7 @@ export const LIMITS = {
   maxReviseScope: 60,
   title: 80,
   notes: 500,
+  reason: 80,
   placeQuery: 80,
   instruction: 300,
   listItem: 40,
@@ -40,6 +41,8 @@ export interface DraftItem {
   estimatedCost: number | null;
   currency: string;
   notes: string | null;
+  /** AI가 이 일정을 고른 이유 (미리보기에만 보여 줘요) */
+  reason?: string | null;
 }
 
 export interface GenerateInput {
@@ -209,7 +212,8 @@ export const SYSTEM_PROMPT = `너는 한국어 여행 일정 플래너다. 제�
 - 장소 후보 목록이 주어지면 가능한 한 그 안에서 고른다. 확실하지 않은 장소를 지어내지 않는다.
 - estimatedCost 는 1인 기준 대략적인 금액(통화 currency)이며 모르면 null 로 둔다.
 - 시간은 24시간 "HH:MM" 형식이며 자정을 넘기지 않는다. 같은 날 일정의 시간이 겹치지 않게 한다.
-- notes 는 짧게(100자 이내) 쓴다.`;
+- notes 는 짧게(100자 이내) 쓴다.
+- reason 에는 이 일정을 추천하는 이유를 한 문장(40자 이내)으로 쓴다 (예: "해 질 녘 야경이 좋아요", "숙소에서 걸어서 5분"). 확인하지 못한 사실을 단정하지 않는다.`;
 
 function dataBlock(obj: unknown): string {
   // JSON 으로 감싸서 데이터와 지시를 분리 (태그를 닫는 문자열은 깨뜨림)
@@ -298,7 +302,7 @@ export function buildRevisePrompt(input: ReviseInput, range: TripRange, items: C
 const ITEM_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['type', 'title', 'startTime', 'endTime', 'placeQuery', 'estimatedCost', 'currency', 'notes'],
+  required: ['type', 'title', 'startTime', 'endTime', 'placeQuery', 'estimatedCost', 'currency', 'notes', 'reason'],
   properties: {
     type: { type: 'string', enum: [...ITEM_TYPES] },
     title: { type: 'string', description: '일정 이름 (40자 이내)' },
@@ -308,6 +312,7 @@ const ITEM_SCHEMA = {
     estimatedCost: { type: ['number', 'null'], description: '1인 예상 비용, 모르면 null' },
     currency: { type: 'string', description: 'ISO 통화 코드 (예: KRW)' },
     notes: { type: 'string', description: '짧은 메모 (100자 이내), 없으면 빈 문자열' },
+    reason: { type: 'string', description: '추천 이유 한 문장 (40자 이내), 없으면 빈 문자열' },
   },
 };
 
@@ -392,6 +397,7 @@ function normItem(raw: Record<string, unknown>, date: string, warnings: string[]
     estimatedCost,
     currency: CURRENCY_RE.test(cur) ? cur : 'KRW',
     notes: cleanText(raw.notes, LIMITS.notes),
+    reason: cleanText(raw.reason, LIMITS.reason),
   };
 }
 

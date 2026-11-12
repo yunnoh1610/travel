@@ -56,7 +56,11 @@ SQL Editor에서 `supabase\migrate-006-scrapbook-design.sql` 을 한 번 실행�
 SQL Editor에서 `supabase\migrate-007-trip-info.sql` 을 한 번 실행해요. (결과: **✔ 여행 정보 확장 설정 완료**)
 여행에 국가·도시·여행 유형·대표 사진 칸을 더해요. 실행 전에도 앱은 동작하고, 이 칸들만 숨겨져요.
 
-> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` → `migrate-006-scrapbook-design.sql` → `migrate-007-trip-info.sql` 순서로 실행하면 돼요.
+## 8-5. 일정 상태·동행자 (2026-11 추가)
+SQL Editor에서 `supabase\migrate-008-plan-status.sql` 을 한 번 실행해요. (결과: **✔ 일정 상태·동행자 설정 완료**)
+일정마다 상태(예정 / 방문 완료 / 취소)와 함께 가는 멤버 칸을 더해요. 이미 기록이 연결된 일정은 '방문 완료'로 바뀌어요. 실행 전에도 앱은 동작하고, 상태·동행자만 숨겨져요. 되돌리기: `supabaseollback-008-plan-status.sql`
+
+> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` → `migrate-006-scrapbook-design.sql` → `migrate-007-trip-info.sql` → `migrate-008-plan-status.sql` 순서로 실행하면 돼요.
 
 ## 9. 카카오 장소 검색 연결 (한국 장소 이름 정확하게)
 1. https://developers.kakao.com → 카카오 계정으로 로그인 (처음이면 개발자 등록 약관 동의)

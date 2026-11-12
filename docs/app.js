@@ -379,6 +379,100 @@ function planOptions(items, date, chosen) {
   return `<option value="">연결 안 함</option>${list.map((i) => `<option value="${i.id}" ${i.id === chosen ? 'selected' : ''}>${esc(planLabel(i))}</option>`).join('')}`;
 }
 
+// ---------- 일정 상태 (DB 설정 008): 예정 / 방문 완료 / 취소 ----------
+const PLAN_ST = { PLANNED: '예정', DONE: '방문 완료', CANCELLED: '취소' };
+const PLAN_EMO = { PLACE: '📍', MEAL: '🍜', CAFE: '☕', MOVE: '🚌', STAY: '🏨', REST: '🛋️', ETC: '✨' };
+const PLAN_TO_CAT = { PLACE: 'sight', MEAL: 'food', CAFE: 'cafe', STAY: 'stay' };
+const planSt = (it) => (state.v008 && it?.status) || 'PLANNED';
+const planStBadge = (it) => (state.v008
+  ? `<span class="pst ${planSt(it).toLowerCase()}">${planSt(it) === 'DONE' ? '✓ ' : ''}${PLAN_ST[planSt(it)]}</span>` : '');
+/** 이 일정에 연결된 실제 기록 */
+const recordsOfPlan = (id) => state.places.filter((p) => p.plan_item_id === id);
+async function setPlanStatus(id, status) {
+  if (!state.v008) throw new Error('DB 설정(migrate-008)이 먼저 필요해요');
+  const res = await sb.from('itinerary_items').update({ status }).eq('id', id).select('id');
+  if (res.error) throw new Error(korean(res.error));
+  if (!res.data?.length) throw new Error('권한이 없거나 이미 지워진 일정이에요');
+}
+/** 기록을 일정에 연결하면 그 일정은 '방문 완료' (실패해도 기록은 그대로) */
+async function markPlanVisited(planId) {
+  if (!planId || !state.v008) return;
+  const it = state.plans.find((i) => i.id === planId);
+  if (it && planSt(it) === 'DONE') return;
+  try { await setPlanStatus(planId, 'DONE'); } catch { /* 표시만 못 함 */ }
+}
+/** 일정이 바뀐 뒤: 지도·기록장(state.plans)과 타임라인 탭(planner.js)을 함께 새로 */
+async function afterPlanChange() {
+  await window.refreshPlans();
+  window.dispatchEvent(new CustomEvent('travel:plans'));
+}
+/** ✓ 방문 완료: 기록을 남기며 완료하거나, 기록 없이 완료만 */
+function openPlanDone(it) {
+  const recs = recordsOfPlan(it.id);
+  const body = openSheet(`<h2>✓ 방문 완료</h2>
+    <p class="muted" style="margin-top:-4px">${fmtDate(it.day_date)} · ${esc(planLabel(it))}${it.place_name && it.place_name !== it.title ? ` · 📍 ${esc(it.place_name)}` : ''}</p>
+    ${recs.length ? `<div class="notice">이미 연결된 기록이 있어요: ${recs.map((p) => esc(p.name)).join(', ')}</div>` : ''}
+    <div class="choice-list">
+      <button class="choice" data-done="record"><span class="ic">📷</span><span><b>기록 남기고 완료</b><small>장소·날짜·시간이 채워진 기록 화면이 열려요. 사진과 한마디를 더해 보세요</small></span></button>
+      <button class="choice" data-done="only"><span class="ic">✓</span><span><b>기록 없이 완료만 표시</b><small>나중에 기록하면서 이 일정과 연결해도 돼요</small></span></button>
+    </div>`);
+  body.onclick = async (e) => {
+    const k = e.target.closest('[data-done]')?.dataset.done;
+    if (k === 'record') {
+      const now = new Date();
+      openAddPlace({
+        tripId: it.trip_id, name: it.place_name || it.title, lat: it.lat, lng: it.lng, date: it.day_date,
+        time: it.day_date === today() ? timeOfMs(now.getTime()) : hhmm(it.start_time),
+        planId: it.id, category: PLAN_TO_CAT[it.item_type],
+      });
+    } else if (k === 'only') {
+      try {
+        await setPlanStatus(it.id, 'DONE');
+        closeSheet();
+        await afterPlanChange();
+        toast('방문 완료로 표시했어요');
+      } catch (err) { toast(err.message); }
+    }
+  };
+}
+/** 지도에서 일정 핀을 눌렀을 때 */
+function openPlanSheet(it) {
+  const st = planSt(it);
+  const recs = recordsOfPlan(it.id);
+  const time = it.start_time ? ` ${hhmm(it.start_time)}${it.end_time ? `~${hhmm(it.end_time)}` : ''}` : '';
+  const body = openSheet(`<span class="pd-cat">📋 여행 계획 · ${ic(PLAN_EMO[it.item_type] || '✨')}</span>
+    <h2 class="pd-name">${esc(it.title)}</h2>
+    <div class="pd-meta">
+      <span>📅 ${fmtDate(it.day_date)}${time}</span>
+      ${planStBadge(it)}
+      ${it.place_name && it.place_name !== it.title ? `<span>📍 ${esc(it.place_name)}</span>` : ''}
+    </div>
+    ${it.notes ? `<div class="pd-memo">${esc(it.notes)}</div>` : ''}
+    ${recs.length ? `<div class="field"><span>실제 기록</span>${recs.map((p) => `<button type="button" class="card" data-rec="${p.id}" style="margin-bottom:6px">
+        <div class="body"><b>📷 ${esc(p.name)}</b><small>${fmtDate(visitKey(p))}${p.visited_time ? ` ${hhmm(p.visited_time)} 방문` : ''}</small></div></button>`).join('')}</div>` : ''}
+    <div class="btn-row">
+      ${state.v008 && st !== 'DONE' ? '<button class="btn" data-act="done">✓ 방문 완료</button>' : ''}
+      <button class="btn" data-act="edit">✏️ 수정</button>
+      ${state.v008 && st === 'PLANNED' ? '<button class="btn" data-act="cancel">취소</button>' : ''}
+      ${state.v008 && st !== 'PLANNED' ? '<button class="btn" data-act="planned">↩ 예정으로</button>' : ''}
+    </div>`);
+  body.onclick = async (e) => {
+    const rec = e.target.closest('[data-rec]');
+    if (rec) return openPlace(Number(rec.dataset.rec));
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'done') openPlanDone(it);
+    else if (act === 'edit') { closeSheet(); window.Planner?.openItem(it); }
+    else if (act === 'cancel' || act === 'planned') {
+      try {
+        await setPlanStatus(it.id, act === 'cancel' ? 'CANCELLED' : 'PLANNED');
+        closeSheet();
+        await afterPlanChange();
+        toast(act === 'cancel' ? '일정을 취소로 표시했어요' : '다시 예정으로 바꿨어요');
+      } catch (err) { toast(err.message); }
+    }
+  };
+}
+
 // 여행은 시작일~종료일, 모임·일상은 날짜 하나
 const PARTY = { SOLO: '혼자', COUPLE: '커플', FRIENDS: '친구', FAMILY: '가족', GROUP: '단체' };
 const PARTY_PEOPLE = { SOLO: 1, COUPLE: 2 };
@@ -589,7 +683,7 @@ function candChips(cands, prefix = '', chosen = '') {
 }
 
 // ---------- 상태 ----------
-const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true };
+const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true, mapShow: 'all', mapDay: '' };
 let map;
 let markerLayer;
 
@@ -828,6 +922,8 @@ async function enterApp(user) {
   state.me = { id: user.id, email: user.email, userid: userIdOf(user.email), name };
   // DB 설정 007(여행 국가·도시·유형·대표 사진)이 있는지
   try { const r = await sb.from('trips').select('country').limit(1); state.v007 = !r.error; } catch { state.v007 = false; }
+  // DB 설정 008(일정 상태·동행자)이 있는지
+  try { const r = await sb.from('itinerary_items').select('status').limit(1); state.v008 = !r.error; } catch { state.v008 = false; }
   // 계정에 저장된 테마가 있으면 이 기기에도 적용 (다른 기기에서 바꾼 테마 따라가기)
   const savedTheme = user.user_metadata?.theme;
   if (savedTheme && usableTheme(savedTheme) && savedTheme !== currentTheme) applyTheme(savedTheme);
@@ -851,6 +947,19 @@ function initMap() {
     maxZoom: 19, attribution: '&copy; OpenStreetMap',
   }).addTo(map);
   markerLayer = L.layerGroup().addTo(map);
+  // 한 여행을 고른 상태에서 지도를 누르면 "이 위치를 일정에 추가"
+  map.on('click', (e) => {
+    if (state.filter === 'all' || !window.Planner) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chip-btn';
+    btn.textContent = '＋ 이 위치를 일정에 추가';
+    btn.onclick = () => {
+      map.closePopup();
+      window.Planner.addAt(state.filter, { lat: e.latlng.lat, lng: e.latlng.lng, day: state.mapDay });
+    };
+    L.popup({ closeButton: false, className: 'add-plan-pop', offset: [0, -4] }).setLatLng(e.latlng).setContent(btn).openOn(map);
+  });
 }
 
 async function refresh(fit = false) {
@@ -883,27 +992,74 @@ $('#tripFilter').onchange = (e) => {
 function renderMap(fit) {
   markerLayer.clearLayers();
   $('#view-map .map-empty')?.remove();
-  const ordered = [...state.places].sort(byVisit);
+  $('#view-map .map-bar')?.remove();
   const single = state.filter !== 'all';
-  ordered.forEach((p, i) => {
+  // 한 여행을 고르면 계획 일정도 지도에: 예정(점선 테두리) · 취소(회색) · 실제 기록(완료)
+  const planPts = single ? state.plans.filter((i) => i.trip_id === state.filter && i.lat != null) : [];
+  const days = single ? [...new Set([...planPts.map((i) => i.day_date), ...state.places.map(visitKey)])].sort() : [];
+  if (state.mapDay && !days.includes(state.mapDay)) state.mapDay = '';
+  const show = planPts.length ? state.mapShow : 'all';
+  const onDay = (d) => !state.mapDay || d === state.mapDay;
+  const all = [...state.places].sort(byVisit);
+  const ordered = show === 'plan' ? [] : all.filter((p) => onDay(visitKey(p)));
+  ordered.forEach((p) => {
     const th = p.photos[0]?.thumb;
     const html = `<div class="pin">${th ? `<img src="${esc(th)}" alt="">` : catIcon(p.category)}</div>`
-      + (single ? `<div class="pin-num">${i + 1}</div>` : '');
+      + (single ? `<div class="pin-num">${all.indexOf(p) + 1}</div>` : '');
     L.marker([p.lat, p.lng], {
       icon: L.divIcon({ html, className: 'pin-wrap', iconSize: [44, 44], iconAnchor: [22, 51] }),
       title: p.name,
     }).on('click', () => openPlace(p.id)).addTo(markerLayer);
   });
-  if (single && ordered.length > 1) {
-    drawRoute(ordered.map((p) => [p.lat, p.lng]), markerLayer);
+  if (single && ordered.length > 1) drawRoute(ordered.map((p) => [p.lat, p.lng]), markerLayer);
+  // 계획 일정 핀: 기록이 연결된 완료 일정은 기록 핀으로 보여요
+  const plans = planPts.filter((i) => onDay(i.day_date) && (
+    show === 'plan' ? planSt(i) === 'PLANNED'
+      : show === 'done' ? planSt(i) === 'DONE' && !recordsOfPlan(i.id).length
+        : !recordsOfPlan(i.id).length));
+  if (show !== 'done') {
+    // 일자별 계획 경로 (점선) — 취소한 일정은 빼고 순서대로
+    for (const d of days.filter(onDay)) {
+      const pts = planPts.filter((i) => i.day_date === d && planSt(i) !== 'CANCELLED');
+      if (pts.length > 1) {
+        L.polyline(pts.map((i) => [i.lat, i.lng]), { color: '#8f84c9', weight: 3, opacity: 0.75, dashArray: '6 8', interactive: false }).addTo(markerLayer);
+      }
+    }
   }
-  if (!ordered.length) {
+  plans.forEach((it) => {
+    const st = planSt(it).toLowerCase();
+    const no = state.plans.filter((x) => x.day_date === it.day_date && x.trip_id === it.trip_id).indexOf(it) + 1;
+    L.marker([it.lat, it.lng], {
+      icon: L.divIcon({ html: `<div class="pin plan-pin ${st}">${ic(PLAN_EMO[it.item_type] || '✨')}</div><div class="pin-num plan">${days.indexOf(it.day_date) + 1}-${no}</div>`,
+        className: 'pin-wrap plan-wrap', iconSize: [34, 34], iconAnchor: [17, 41] }),
+      title: `${PLAN_ST[planSt(it)]}: ${it.title}`,
+      zIndexOffset: -100,
+    }).on('click', () => openPlanSheet(it)).addTo(markerLayer);
+  });
+  // 위쪽 거르기: 전체·예정·완료 + 날짜
+  if (single && days.length) {
+    $('#view-map').insertAdjacentHTML('beforeend', `<div class="map-bar">
+      ${planPts.length ? `<div class="seg mini-seg" role="group" aria-label="지도에 보일 것">
+        ${[['all', '전체'], ['plan', '📋 예정'], ['done', '✓ 완료']].map(([k, l]) => `<button type="button" class="${show === k ? 'on' : ''}" data-mshow="${k}" aria-pressed="${show === k}">${l}</button>`).join('')}
+      </div>` : ''}
+      <select data-mday aria-label="날짜"><option value="">모든 날짜</option>
+        ${days.map((d, i) => `<option value="${d}" ${d === state.mapDay ? 'selected' : ''}>${i + 1}일차 · ${fmtDate(d).replace(/^\d+년 /, '')}</option>`).join('')}</select>
+    </div>`);
+    const bar = $('#view-map .map-bar');
+    bar.onclick = (e) => {
+      const b = e.target.closest('[data-mshow]');
+      if (b) { state.mapShow = b.dataset.mshow; renderMap(true); }
+    };
+    bar.onchange = (e) => { if (e.target.matches('[data-mday]')) { state.mapDay = e.target.value; renderMap(true); } };
+  }
+  const pts = [...ordered.map((p) => [p.lat, p.lng]), ...plans.map((i) => [i.lat, i.lng])];
+  if (!state.places.length && !planPts.length) {
     const msg = state.trips.length
       ? '아직 기록이 없어요. 오른쪽 아래 <b>＋</b> 버튼으로 첫 장소를 남겨보세요!'
       : '반가워요! 먼저 위쪽 <b>🧳</b> 버튼에서 여행을 만들고, 함께한 친구를 초대해 보세요.';
     $('#view-map').insertAdjacentHTML('beforeend', `<div class="map-empty">${msg}</div>`);
-  } else if (fit) {
-    map.fitBounds(ordered.map((p) => [p.lat, p.lng]), { padding: [60, 60], maxZoom: 14, animate: false }); // 다른 탭에 있을 때(지도가 숨겨진 동안) 애니메이션 오류 방지
+  } else if (fit && pts.length) {
+    map.fitBounds(pts, { padding: [60, 60], maxZoom: 14, animate: false }); // 다른 탭에 있을 때(지도가 숨겨진 동안) 애니메이션 오류 방지
   }
 }
 
@@ -956,6 +1112,7 @@ window.refreshPlans = async () => {
   planCache.clear();
   state.plans = await db.plans(state.filter);
   renderJournal();
+  renderMap(false);
 };
 
 // ---------- 여행 상태 (날짜로 자동: 계획 중 / 여행 중 / 여행 완료) ----------
@@ -1142,13 +1299,14 @@ function openPlace(id) {
     ${p.memo ? `<div class="pd-memo">${esc(p.memo)}</div>` : ''}
     <div class="pd-meta">
       <span>📅 ${fmtDate(visitKey(p))}${p.visited_time ? ` ${hhmm(p.visited_time)}` : ''}</span>
-      ${p.plan_item_id && state.plans.find((i) => i.id === p.plan_item_id) ? `<span>📋 계획: ${esc(planLabel(state.plans.find((i) => i.id === p.plan_item_id)))}</span>` : ''}
+      ${p.plan_item_id && state.plans.find((i) => i.id === p.plan_item_id) ? `<span>📋 계획: ${esc(planLabel(state.plans.find((i) => i.id === p.plan_item_id)))} ${planStBadge(state.plans.find((i) => i.id === p.plan_item_id))}</span>` : ''}
       <span>✍️ ${esc(p.author)}</span>
       <span>${kindIcon(trip?.kind)} ${esc(p.trip_title)}</span>
     </div>
     <div class="btn-row">
       <button class="btn" data-act="locate">${ic('🗺️')} 지도에서 보기</button>
       <label class="btn">📷 사진 추가<input type="file" accept="image/*" multiple hidden></label>
+      <button class="btn" data-act="to-plan">＋ 일정에 추가</button>
       ${canEdit ? '<button class="btn" data-act="edit">✏️ 수정</button><button class="btn danger" data-act="delete">삭제</button>' : ''}
     </div>
     <div class="divider"></div>
@@ -1224,6 +1382,8 @@ function openPlace(id) {
       closeSheet();
       switchView('map');
       setTimeout(() => map.flyTo([p.lat, p.lng], Math.max(map.getZoom(), 15)), 50);
+    } else if (act === 'to-plan') {
+      window.Planner?.addAt(p.trip_id, { lat: p.lat, lng: p.lng, name: p.name, placeId: p.id });
     } else if (act === 'edit') {
       openEditPlace(p);
     } else if (act === 'delete') {
@@ -1294,6 +1454,7 @@ function openEditPlace(p) {
         visited_time: f.visited_time.value || null,
         plan_item_id: f.plan_item_id.value ? Number(f.plan_item_id.value) : null,
       });
+      if (f.plan_item_id.value && Number(f.plan_item_id.value) !== p.plan_item_id) await markPlanVisited(Number(f.plan_item_id.value));
       await refresh();
       openPlace(p.id);
       toast('수정했어요');
@@ -1649,6 +1810,7 @@ function openBulkImport() {
           plan_item_id: c.planId || null,
         }, photos.slice(0, MAX_PHOTOS), (n, total) => { btn.textContent = `기록하는 중… ${done + 1}/${todo.length}곳 · 사진 ${n}/${total}`; });
         firstId ??= id;
+        await markPlanVisited(c.planId);
         photoFailed += failed;
         done++;
       }
@@ -1669,22 +1831,26 @@ function openBulkImport() {
   }
 }
 
-function openAddPlace() {
+/**
+ * 장소 기록하기. pre: 일정에서 "방문 완료 → 기록 남기기"로 열 때 채울 값
+ * { tripId, name, lat, lng, date, time, planId, category }
+ */
+function openAddPlace(pre = {}) {
   if (!state.trips.length) {
     toast('먼저 여행을 만들어 주세요');
     openTripForm();
     return;
   }
-  const defTrip = state.filter !== 'all' ? state.filter : state.trips[0].id;
+  const defTrip = pre.tripId || (state.filter !== 'all' ? state.filter : state.trips[0].id);
   let processing = 0; // 줄이는 중인 사진 묶음 수 (끝나기 전엔 저장 버튼 잠금)
   const pending = [];
-  let pos = null;
+  let pos = pre.lat != null ? { lat: pre.lat, lng: pre.lng } : null;
   let mini = null;
   let miniMarker = null;
-  let dateTouched = false;
-  let nameTouched = false;
+  let dateTouched = !!pre.date;
+  let nameTouched = !!pre.name;
 
-  const body = openSheet(`<h2>장소 기록하기</h2>
+  const body = openSheet(`<h2>${pre.planId ? '방문 기록 남기기' : '장소 기록하기'}</h2>
     <form id="addForm" autocomplete="off">
       <label class="field"><span>여행</span><select name="trip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
       <div class="field"><span>사진 <small id="photoCount"></small></span>
@@ -1694,7 +1860,7 @@ function openAddPlace() {
         <small class="hint">사진에 위치·날짜 정보가 있으면 자동으로 채워져요. 올릴 때 자동으로 용량을 줄여요.</small>
       </div>
       <div class="field"><span>장소 이름</span>
-        <div class="search-row"><input name="name" maxlength="60" placeholder="예: 오사카성, 공주역" enterkeyhint="search"><button type="button" id="searchBtn">검색</button></div>
+        <div class="search-row"><input name="name" maxlength="60" placeholder="예: 오사카성, 공주역" enterkeyhint="search" value="${esc(pre.name || '')}"><button type="button" id="searchBtn">검색</button></div>
         <div id="nearby"></div>
         <div id="results" class="results"></div>
       </div>
@@ -1703,7 +1869,7 @@ function openAddPlace() {
         <button type="button" class="link" id="myPosBtn">📍 지금 있는 위치 사용</button>
       </div>
       <div class="grid2">
-        <label class="field"><span>날짜</span><input type="date" name="visited_at" value="${today()}"></label>
+        <label class="field"><span>날짜</span><input type="date" name="visited_at" value="${pre.date || today()}"></label>
         <label class="field ${state.v005 ? '' : 'hidden'}"><span>시간 <small id="timeSrc"></small></span><input type="time" name="visited_time"></label>
       </div>
       <div class="field hidden" id="apPlanField"><span>여행 계획과 연결</span><select name="plan_item_id"></select><small class="hint" id="apPlanHint"></small></div>
@@ -1721,9 +1887,11 @@ function openAddPlace() {
   const results = $('#results', body);
 
   // 여행 계획 연결: 날짜가 같고 위치·이름·시간이 비슷한 일정을 추천 (계획 시간은 바꾸지 않음)
-  let timeTouched = false;
+  let timeTouched = !!pre.time;
   let planTouched = false;
+  let prePlan = pre.planId || null;
   let apPlans = [];
+  if (pre.time) form.visited_time.value = pre.time;
   function suggestPlan() {
     if (!body.isConnected || !state.v005) return;
     const date = form.visited_at.value;
@@ -1738,6 +1906,11 @@ function openAddPlace() {
   async function loadApPlans() {
     apPlans = await plansOfTrip(Number(form.trip.value));
     planTouched = false;
+    if (prePlan && apPlans.some((i) => i.id === prePlan)) {
+      form.plan_item_id.innerHTML = planOptions(apPlans, form.visited_at.value, prePlan);
+      planTouched = true;
+    }
+    prePlan = null;
     suggestPlan();
   }
   loadApPlans();
@@ -1792,6 +1965,7 @@ function openAddPlace() {
     } catch { /* 이름은 직접 입력 */ }
   }
   form.addEventListener('change', (e) => { if (e.target.name === 'category') catTouched = true; });
+  if (pre.category) { setCategory(pre.category); catTouched = true; }
   $('#nearby', body).onclick = (e) => {
     const b = e.target.closest('[data-cand]');
     if (!b) return;
@@ -1930,8 +2104,11 @@ function openAddPlace() {
         plan_item_id: form.plan_item_id.value ? Number(form.plan_item_id.value) : null,
       }, pending, (n, total) => { btn.textContent = `사진 올리는 중… ${n}/${total}`; });
       const id = r.id;
+      const planId = form.plan_item_id.value ? Number(form.plan_item_id.value) : null;
+      await markPlanVisited(planId);
       closeSheet();
-      toast(uploadResultMsg(r, '기록했어요 ✈️'));
+      toast(uploadResultMsg(r, planId && state.v008 ? '기록하고 방문 완료로 표시했어요 ✈️' : '기록했어요 ✈️'));
+
       if (state.filter !== 'all' && state.filter !== tripId) state.filter = tripId;
       await refresh();
       switchView('map');

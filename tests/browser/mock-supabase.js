@@ -41,6 +41,8 @@
   const plan = (tid) => { let p = db.trip_plans.find((x) => x.trip_id === tid); if (!p) { p = { trip_id: tid, revision: 0, prefs: {} }; db.trip_plans.push(p); } return p; };
   const bump = (tid) => { plan(tid).revision++; };
   const err = (message, code = 'MOCK') => ({ data: null, error: { message, code } });
+  // DB 설정 008: 일정 상태·동행자 (?no008 이면 그 전 DB)
+  if (!/no008/.test(location.search)) db.itinerary_items.forEach((i) => { i.status = i.id === 2 ? 'DONE' : 'PLANNED'; i.assignees = null; });
   const ok = (data, extra = {}) => ({ data, error: null, ...extra });
   const clone = (x) => JSON.parse(JSON.stringify(x));
   const tripOk = (tid, d) => { const t = db.trips.find((x) => x.id === tid); return t && d >= t.start_date && d <= (t.end_date || t.start_date); };
@@ -107,6 +109,10 @@
       if (window.MOCK.no007 && src === 'trips' && (new007.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new007.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new007.test(k))))) {
         return err('column trips.country does not exist', '42703');
       }
+      const new008 = /\bstatus\b|assignees/;
+      if (window.MOCK.no008 && src === 'itinerary_items' && (new008.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new008.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new008.test(k))))) {
+        return err('column itinerary_items.status does not exist', '42703');
+      }
       if (window.MOCK.no005 && (new005.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new005.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new005.test(k))))) {
         return err('column places.visited_time does not exist', '42703');
       }
@@ -118,7 +124,7 @@
           const r = { id: src === 'scrapbook_elements' ? row.id : nextId(src), created_at: now(), created_by: ME.id, ...row };
           if (src === 'itinerary_items') {
             if (!tripOk(r.trip_id, r.day_date)) return err('일정 날짜가 여행 기간 밖이에요 (여행 날짜를 먼저 정해 주세요)', 'PT400');
-            Object.assign(r, { verification_status: 'UNVERIFIED', currency: 'KRW', source: 'MANUAL', user_edited: false, sort_order: 0, ...r });
+            Object.assign(r, { verification_status: 'UNVERIFIED', currency: 'KRW', source: 'MANUAL', user_edited: false, sort_order: 0, ...(window.MOCK.no008 ? {} : { status: 'PLANNED', assignees: null }), ...r });
             bump(r.trip_id);
           }
           if (src === 'trip_expenses' && r.amount < 0) return err('violates check constraint', '23514');
@@ -179,7 +185,7 @@
         const max = db.itinerary_items.filter((x) => x.trip_id === d.trip_id && x.day_date === it.date).reduce((m, x) => Math.max(m, x.sort_order), 0);
         db.itinerary_items.push({ id: nextId('itinerary_items'), trip_id: d.trip_id, day_date: it.date, sort_order: max + 1, item_type: it.type, title: it.title,
           start_time: it.startTime ? `${it.startTime}:00` : null, end_time: it.endTime ? `${it.endTime}:00` : null, place_id: null, place_name: it.placeName, address: it.address,
-          lat: it.lat, lng: it.lng, verification_status: it.verificationStatus, cost_estimate: it.estimatedCost, currency: it.currency, notes: it.notes, source: 'AI', user_edited: false, created_by: ME.id });
+          lat: it.lat, lng: it.lng, verification_status: it.verificationStatus, cost_estimate: it.estimatedCost, currency: it.currency, notes: it.notes, source: 'AI', user_edited: false, created_by: ME.id, ...(window.MOCK.no008 ? {} : { status: 'PLANNED', assignees: null }) });
         bump(d.trip_id);
       };
       let n = [0, 0, 0];
@@ -228,7 +234,7 @@
     const t = db.trips.find((x) => x.id === body.tripId);
     const it = (tmp, date, type, title, s, e, pq, ver, cost, notes, ll) => ({ temporaryId: tmp, date, type, title, startTime: s, endTime: e, placeQuery: pq,
       placeName: pq, address: ver ? '충남 공주시' : null, lat: ver ? ll[0] : null, lng: ver ? ll[1] : null, matchedPlaceId: ver ? 'kakao:1' : null,
-      verificationStatus: ver ? 'VERIFIED' : 'UNVERIFIED', estimatedCost: cost, currency: 'KRW', notes });
+      verificationStatus: ver ? 'VERIFIED' : 'UNVERIFIED', estimatedCost: cost, currency: 'KRW', notes, reason: ver ? '동선이 가깝고 평이 좋아요' : '' });
     const days = [
       { date: t.start_date, items: [
         it('tmp-1', t.start_date, 'PLACE', '공산성 성곽길 산책', '11:00', '12:30', '공산성', true, 1200, '성곽 위 전망 좋음', [36.4646, 127.1265]),
@@ -311,7 +317,7 @@
       async signInWithPassword() { return { data: { session: { user: ME } }, error: null }; },
     },
   };
-  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), no007: /no007/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
+  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), no007: /no007/.test(location.search), no008: /no008/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
   window.supabase = { createClient: () => client };
   window.TRAVEL_CONFIG = { url: 'https://mock.local', key: 'mock' };
 })();
