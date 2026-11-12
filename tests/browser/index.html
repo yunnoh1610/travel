@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>여행 기록 — 화면 확인용 (가짜 Supabase)</title>
+<script>
+  // 실제 docs/index.html 을 불러와서 Supabase SDK·config.js 만 가짜(mock-supabase.js)로 바꿔 보여 줘요.
+  // 실행: 저장소 폴더에서  python -m http.server 3700  →  http://localhost:3700/tests/browser/
+  (async () => {
+    const html = await (await fetch('/docs/index.html', { cache: 'no-store' })).text();
+    const out = html
+      .replace('<head>', '<head><base href="/docs/">')
+      .replace(/<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase[^>]*><\/script>/, '<script src="/tests/browser/mock-supabase.js"><\/script>')
+      .replace('<script src="config.js"><\/script>', '');
+    document.open();
+    document.write(out);
+    document.close();
+  })();
+</script>
