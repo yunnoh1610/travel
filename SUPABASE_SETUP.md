@@ -40,7 +40,11 @@ SQL Editor에서 `supabase\migrate-002-username.sql` 을 한 번 실행해요. (
 ## 8. 추억 기록 기능 (2026-11 추가)
 SQL Editor에서 `supabase\migrate-003-memories.sql` 을 한 번 실행해요. (결과: **✔ 추억 기록 기능 설정 완료**)
 
-> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` 순서로 실행하면 돼요.
+## 8-1. AI 여행 계획·스크랩북 (2026-11 추가)
+SQL Editor에서 `supabase\migrate-004-planner-scrapbook.sql` 을 한 번 실행해요. (결과: **✔ AI 여행 계획·스크랩북 설정 완료**)
+AI 기능(Edge Function)과 OpenAI 키 설정은 [AI_PLANNER.md](AI_PLANNER.md) 4번을 보세요.
+
+> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` 순서로 실행하면 돼요.
 
 ## 9. 카카오 장소 검색 연결 (한국 장소 이름 정확하게)
 1. https://developers.kakao.com → 카카오 계정으로 로그인 (처음이면 개발자 등록 약관 동의)

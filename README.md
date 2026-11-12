@@ -14,6 +14,7 @@
 | `.github/workflows/keepalive.yml` | 3일마다 Supabase를 깨워서 1주일 미사용 일시정지를 막음 |
 | [SUPABASE_SETUP.md](SUPABASE_SETUP.md) | 처음 설정하는 순서 |
 
+- **AI 여행 계획 · 예산 · 준비물 · 스크랩북** (2026-11 추가): 설치·구조·테스트는 [AI_PLANNER.md](AI_PLANNER.md)
 - 로그인은 이메일 + 비밀번호. 비밀번호를 잊으면 로그인 화면의 "비밀번호를 잊었어요"로 재설정 메일을 받아요
 - 데이터는 Supabase의 권한 규칙(RLS)으로 보호돼요: 같은 여행 멤버만 보고, 쓴 사람·여행 만든 사람만 고치거나 지워요
 - 무료 한도: 사진 저장 1GB(줄인 사진 기준 약 3,000장), DB 500MB, 한 달 전송량 5GB

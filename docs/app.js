@@ -237,6 +237,9 @@ const db = {
   async deleteTrip(id) {
     const ph = await q(sb.from('photos').select('path, thumb_path, places!inner(trip_id)').eq('places.trip_id', id));
     await removeFiles(ph.flatMap((x) => [x.path, x.thumb_path]));
+    // 스크랩북에서 새로 올린 사진 (DB 설정 004 전이면 테이블이 없어서 건너뜀)
+    const sbFiles = await sb.from('scrapbook_elements').select('asset_path').eq('trip_id', id).not('asset_path', 'is', null);
+    if (!sbFiles.error && sbFiles.data?.length) await removeFiles(sbFiles.data.map((x) => x.asset_path)).catch(() => {});
     await qChanged(sb.from('trips').delete().eq('id', id).select('id'));
   },
   async addMemberByUsername(tripId, username) {
@@ -772,6 +775,8 @@ async function refresh(fit = false) {
   renderMap(fit);
   renderTimeline();
   renderTrips();
+  // 일정·스크랩북 화면(planner.js, scrapbook.js)이 선택한 기록장에 맞춰 다시 그리도록 알림
+  window.dispatchEvent(new CustomEvent('travel:refresh'));
 }
 
 function renderFilter() {
@@ -868,9 +873,12 @@ $('#newTripBtn').onclick = () => openTripForm();
 
 function switchView(view) {
   state.view = view;
-  for (const v of ['map', 'timeline', 'trips']) $(`#view-${v}`).classList.toggle('hidden', v !== view);
+  for (const v of document.querySelectorAll('main > .view')) v.classList.toggle('hidden', v.id !== `view-${view}`);
   for (const b of document.querySelectorAll('.tabbar button')) b.classList.toggle('on', b.dataset.view === view);
+  // 장소 기록 버튼(＋)은 지도·타임라인·기록장 화면에서만
+  $('#fab').classList.toggle('hidden', !['map', 'timeline', 'trips'].includes(view));
   if (view === 'map') setTimeout(() => map.invalidateSize(), 0);
+  window.dispatchEvent(new CustomEvent('travel:view', { detail: view }));
 }
 document.querySelector('.tabbar').onclick = (e) => {
   const b = e.target.closest('[data-view]');
