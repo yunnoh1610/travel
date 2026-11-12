@@ -136,6 +136,9 @@
       if (window.MOCK.no010 && src === 'trip_members' && (/\brole\b/.test(this.cols || '') || (this.vals && 'role' in this.vals))) {
         return err('column trip_members.role does not exist', '42703');
       }
+      if (window.MOCK.no011 && src === 'itinerary_items' && (/\btransit\b/.test(this.cols || '') || (this.rows || []).some((r) => 'transit' in r) || (this.vals && 'transit' in this.vals))) {
+        return err('column itinerary_items.transit does not exist', '42703');
+      }
       const new008 = /\bstatus\b|assignees/;
       if (window.MOCK.no008 && src === 'itinerary_items' && (new008.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new008.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new008.test(k))))) {
         return err('column itinerary_items.status does not exist', '42703');
@@ -215,6 +218,24 @@
       p_ids.forEach((id, k) => { const it = day.find((x) => x.id === id); it.sort_order = k + 1; bump(p_trip_id); });
       return plan(p_trip_id).revision;
     },
+    // DB 설정 012: 순서·시간 한 번에 (?no012 이면 없음 → 앱은 예전 방식으로). MOCK.failReorder = true 면 저장 실패 흉내
+    reorder_itinerary_times: ({ p_trip_id, p_day, p_ids, p_starts, p_ends }) => {
+      if (window.MOCK.failReorder) throw { message: '네트워크 오류 (흉내)', code: 'MOCK' };
+      const day = db.itinerary_items.filter((i) => i.trip_id === p_trip_id && i.day_date === p_day);
+      if (day.length !== p_ids.length || p_ids.some((id) => !day.some((x) => x.id === id))) throw { message: '그 사이 일정이 바뀌었어요. 새로고침 후 다시 해 주세요', code: 'PT409' };
+      p_ids.forEach((id, k) => {
+        const it = day.find((x) => x.id === id);
+        it.sort_order = k + 1;
+        if (p_starts) {
+          const s = `${p_starts[k]}:00`;
+          const e = `${p_ends[k]}:00`;
+          if (s !== it.start_time || e !== it.end_time) it.user_edited = true;
+          it.start_time = s; it.end_time = e;
+        }
+      });
+      bump(p_trip_id);
+      return plan(p_trip_id).revision;
+    },
     discard_ai_draft: ({ p_draft_id }) => { const d = db.ai_drafts.find((x) => x.id === p_draft_id); if (d?.status === 'DRAFT') d.status = 'DISCARDED'; return null; },
     apply_ai_draft: ({ p_draft_id, p_accepted, p_expected_revision }) => {
       const d = db.ai_drafts.find((x) => x.id === p_draft_id);
@@ -226,7 +247,7 @@
         const max = db.itinerary_items.filter((x) => x.trip_id === d.trip_id && x.day_date === it.date).reduce((m, x) => Math.max(m, x.sort_order), 0);
         db.itinerary_items.push({ id: nextId('itinerary_items'), trip_id: d.trip_id, day_date: it.date, sort_order: max + 1, item_type: it.type, title: it.title,
           start_time: it.startTime ? `${it.startTime}:00` : null, end_time: it.endTime ? `${it.endTime}:00` : null, place_id: null, place_name: it.placeName, address: it.address,
-          lat: it.lat, lng: it.lng, verification_status: it.verificationStatus, cost_estimate: it.estimatedCost, currency: it.currency, notes: it.notes, source: 'AI', user_edited: false, created_by: ME.id, ...(window.MOCK.no008 ? {} : { status: 'PLANNED', assignees: null }) });
+          lat: it.lat, lng: it.lng, verification_status: it.verificationStatus, cost_estimate: it.estimatedCost, currency: it.currency, notes: it.notes, source: 'AI', user_edited: false, created_by: ME.id, ...(window.MOCK.no008 ? {} : { status: 'PLANNED', assignees: null }), ...(window.MOCK.no011 ? {} : { transit: it.transit || null }) });
         bump(d.trip_id);
       };
       let n = [0, 0, 0];
@@ -275,7 +296,8 @@
     const t = db.trips.find((x) => x.id === body.tripId);
     const it = (tmp, date, type, title, s, e, pq, ver, cost, notes, ll) => ({ temporaryId: tmp, date, type, title, startTime: s, endTime: e, placeQuery: pq,
       placeName: pq, address: ver ? '충남 공주시' : null, lat: ver ? ll[0] : null, lng: ver ? ll[1] : null, matchedPlaceId: ver ? 'kakao:1' : null,
-      verificationStatus: ver ? 'VERIFIED' : 'UNVERIFIED', estimatedCost: cost, currency: 'KRW', notes, reason: ver ? '동선이 가깝고 평이 좋아요' : '' });
+      verificationStatus: ver ? 'VERIFIED' : 'UNVERIFIED', estimatedCost: cost, currency: 'KRW', notes, reason: ver ? '동선이 가깝고 평이 좋아요' : '',
+      transit: type === 'REST' ? null : type === 'MEAL' ? { mode: 'WALK', minutes: 10, detail: '성곽길 따라 내려가서' } : { mode: 'BUS', minutes: 20, detail: '공주종합버스터미널에서 시내버스' } });
     const days = [
       { date: t.start_date, items: [
         it('tmp-1', t.start_date, 'PLACE', '공산성 성곽길 산책', '11:00', '12:30', '공산성', true, 1200, '성곽 위 전망 좋음', [36.4646, 127.1265]),
@@ -330,7 +352,7 @@
     from: (t) => new QB(t),
     async rpc(name, args) {
       await new Promise((r) => setTimeout(r, 150));
-      if (!rpcs[name]) return err(`Could not find the function public.${name}`, 'PGRST202');
+      if (!rpcs[name] || (name === 'reorder_itinerary_times' && /no012/.test(location.search))) return err(`Could not find the function public.${name}`, 'PGRST202');
       try { return ok(clone(rpcs[name](args) ?? null)); } catch (e) { return err(e.message, e.code); }
     },
     functions: {
@@ -365,7 +387,7 @@
       async signInWithPassword() { return { data: { session: { user: ME } }, error: null }; },
     },
   };
-  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), no007: /no007/.test(location.search), no008: /no008/.test(location.search), no009: /no009/.test(location.search), no010: /no010/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
+  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), no007: /no007/.test(location.search), no008: /no008/.test(location.search), no009: /no009/.test(location.search), no010: /no010/.test(location.search), no011: /no011/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
   window.supabase = { createClient: () => client };
   window.TRAVEL_CONFIG = { url: 'https://mock.local', key: 'mock' };
 })();

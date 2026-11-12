@@ -818,7 +818,7 @@ function candChips(cands, prefix = '', chosen = '') {
 }
 
 // ---------- 상태 ----------
-const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true, mapShow: 'all', mapDay: '', favs: new Set(), jq: { text: '', fav: false, mood: '', tag: '', plans: false } };
+const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true, mapShow: 'all', mapDay: '', favs: new Set(), jsel: null, jq: { text: '', fav: false, mood: '', tag: '', plans: false } };
 let map;
 let markerLayer;
 
@@ -1063,6 +1063,8 @@ async function enterApp(user) {
   try { const r = await sb.from('scrapbooks').select('id').limit(1); state.v009 = !r.error; } catch { state.v009 = false; }
   // DB 설정 010(멤버 역할: 만든 사람·편집자·보기 전용)이 있는지
   try { const r = await sb.from('trip_members').select('role').limit(1); state.v010 = !r.error; } catch { state.v010 = false; }
+  // DB 설정 011(일정 사이 이동 방법)이 있는지
+  try { const r = await sb.from('itinerary_items').select('transit').limit(1); state.v011 = !r.error; } catch { state.v011 = false; }
   // 계정에 저장된 테마가 있으면 이 기기에도 적용 (다른 기기에서 바꾼 테마 따라가기)
   const savedTheme = user.user_metadata?.theme;
   if (savedTheme && usableTheme(savedTheme) && savedTheme !== currentTheme) applyTheme(savedTheme);
@@ -1127,6 +1129,7 @@ function renderFilter() {
 }
 $('#tripFilter').onchange = (e) => {
   state.filter = e.target.value === 'all' ? 'all' : Number(e.target.value);
+  state.jsel = null;
   refresh(true);
 };
 
@@ -1229,7 +1232,9 @@ function renderJournal() {
   const el = $('#journal');
   if (!el) return;
   const t = state.filter !== 'all' ? state.trips.find((x) => x.id === state.filter) : null;
-  const head = `<div class="section-head"><h2>📒 기록장</h2><small class="muted">${t ? esc(t.title) : '모든 여행'} · ${state.places.length}곳</small></div>${roBanner(t)}`;
+  const canSelect = state.places.some(canDeletePlace);
+  const head = `<div class="section-head"><h2>📒 기록장</h2><small class="muted">${t ? esc(t.title) : '모든 여행'} · ${state.places.length}곳</small>
+    ${canSelect ? `<button type="button" class="chip-btn" data-jsel="${state.jsel ? 'off' : 'on'}">${state.jsel ? '선택 끝' : '☑ 선택'}</button>` : ''}</div>${roBanner(t)}`;
   if (!state.places.length) {
     // 빈 상태: 실제 기록이 없으면 일정이 있어도 기록장은 비어 있어요 (일정은 타임라인에)
     const n = pendingPlans().length;
@@ -1244,7 +1249,7 @@ function renderJournal() {
     el.innerHTML = `${head}<div class="jr-bar">
         <input type="search" id="jrSearch" placeholder="제목·장소·이야기·태그 검색" aria-label="기록 검색" enterkeyhint="search">
         <div class="jr-chips" id="jrChips"></div>
-      </div><div id="jrList"></div>`;
+      </div><div id="jrList"></div><div id="jrBulk"></div>`;
     $('#jrSearch', el).value = state.jq.text;
   } else {
     $('.ro-banner', el)?.remove();
@@ -1252,6 +1257,7 @@ function renderJournal() {
   }
   renderJournalChips();
   renderJournalList();
+  journalBulkBar();
 }
 /** 한 여행을 골랐을 때, 아직 기록이 없는 예정 일정 (취소·완료·기록 연결된 일정은 빼요) */
 function pendingPlans() {
@@ -1263,7 +1269,9 @@ function feedCard(p) {
   const th = p.photos[0]?.thumb;
   const plan = p.plan_item_id ? state.plans.find((i) => i.id === p.plan_item_id) : null;
   const when = `${shortDate(visitKey(p))}${p.visited_time ? ` ${hhmm(p.visited_time)}` : ''}`;
-  return `<button class="card feed-card" data-place="${p.id}">
+  const pick = state.jsel ? (canDeletePlace(p) ? (state.jsel.has(p.id) ? 'picked' : 'pickable') : 'locked') : '';
+  return `<button class="card feed-card ${pick}" data-place="${p.id}" ${state.jsel ? `aria-pressed="${state.jsel.has(p.id)}"` : ''}>
+    ${pick && pick !== 'locked' ? `<span class="sel-box ${pick === 'picked' ? 'on' : ''}" aria-hidden="true"></span>` : ''}
     ${th ? `<div class="feed-photo"><img src="${esc(th)}" alt="" loading="lazy">${p.photos.length > 1 ? `<span class="feed-n">📷 ${p.photos.length}</span>` : ''}
       ${state.favs.has(p.id) ? '<span class="feed-fav" aria-label="즐겨찾기">★</span>' : ''}</div>` : ''}
     <div class="feed-body">
@@ -1288,6 +1296,34 @@ function planCard(it) {
     </div>
     ${canEdit(it.trip_id) ? '<button type="button" class="plan-go" data-plan-done aria-label="방문 기록 남기기">✓ 기록</button>' : ''}
   </div>`;
+}
+/** 이 기록을 지울 수 있는지: 편집 권한 + (쓴 사람 또는 여행 만든 사람) */
+function canDeletePlace(p) {
+  const t = tripById(p.trip_id);
+  return !!t && canEdit(t) && (p.user_id === state.me.id || t.owner_id === state.me.id);
+}
+function journalBulkBar() {
+  const box = $('#jrBulk');
+  if (!box) return;
+  if (!state.jsel) { box.innerHTML = ''; setSelecting(false); return; }
+  const total = state.places.filter(canDeletePlace).length;
+  box.innerHTML = bulkBarHtml(state.jsel.size, total, '기록');
+  setSelecting(true);
+}
+async function deleteSelectedPlaces() {
+  const list = state.places.filter((p) => state.jsel?.has(p.id) && canDeletePlace(p));
+  if (!list.length) return;
+  const photos = list.reduce((n, p) => n + p.photos.length, 0);
+  if (!confirm(`기록 ${list.length}개${photos ? `와 사진 ${photos}장` : ''}을 삭제할까요? 되돌릴 수 없어요.`)) return;
+  let ok = 0;
+  let fail = 0;
+  for (const p of list) {
+    try { await db.deletePlace(p); ok++; } catch { fail++; }
+  }
+  state.jsel = null;
+  setSelecting(false);
+  await refresh();
+  toast(fail ? `기록 ${ok}개를 삭제했어요 · ${fail}개는 삭제하지 못했어요` : `기록 ${ok}개를 삭제했어요`);
 }
 function renderJournalChips() {
   const box = $('#jrChips');
@@ -1344,6 +1380,28 @@ $('#journal').onclick = (e) => {
   const q = state.jq;
   const go = e.target.closest('[data-goto]');
   if (go) { switchView(go.dataset.goto); return; }
+  const js = e.target.closest('[data-jsel]');
+  if (js) { state.jsel = js.dataset.jsel === 'on' ? new Set() : null; renderJournal(); return; }
+  const bulk = e.target.closest('[data-bulk]')?.dataset.bulk;
+  if (bulk && state.jsel) {
+    const all = state.places.filter(canDeletePlace).map((p) => p.id);
+    if (bulk === 'all') state.jsel = state.jsel.size === all.length ? new Set() : new Set(all);
+    if (bulk === 'cancel') state.jsel = null;
+    if (bulk === 'del') { deleteSelectedPlaces(); return; }
+    renderJournal();
+    return;
+  }
+  if (state.jsel) {
+    const c = e.target.closest('[data-place]');
+    if (c) {
+      const p = state.places.find((x) => x.id === Number(c.dataset.place));
+      if (!p || !canDeletePlace(p)) { toast('내가 쓴 기록(또는 내가 만든 여행의 기록)만 삭제할 수 있어요'); return; }
+      if (state.jsel.has(p.id)) state.jsel.delete(p.id); else state.jsel.add(p.id);
+      renderJournalList();
+      journalBulkBar();
+      return;
+    }
+  }
   if (e.target.closest('[data-act=add-record]')) { $('#fab').click(); return; }
   if (e.target.closest('[data-jclear]')) {
     Object.assign(q, { text: '', fav: false, mood: '', tag: '' });
@@ -1398,6 +1456,19 @@ function tripStatus(t) {
 const statusBadge = (t) => { const st = tripStatus(t); return st ? `<span class="trip-status ${st.key}">${st.label}</span>` : ''; };
 
 // ---------- 내 여행 목록 (모든 탭 공통, 위쪽 🧳 버튼) ----------
+// ---------- 여러 개 고르기 (타임라인·기록장·스크랩북 공통 선택 막대) ----------
+/** n: 고른 수, total: 고를 수 있는 수, what: '일정' 등 */
+function bulkBarHtml(n, total, what) {
+  return `<div class="bulk-bar" role="toolbar" aria-label="${what} 여러 개 고르기">
+    <button type="button" class="bulk-all" data-bulk="all">${n && n === total ? '선택 해제' : '전체 선택'}</button>
+    <b>${n}개 선택</b>
+    <button type="button" class="bulk-del" data-bulk="del" ${n ? '' : 'disabled'}>🗑 삭제</button>
+    <button type="button" class="bulk-cancel" data-bulk="cancel">취소</button>
+  </div>`;
+}
+/** 고르기 중이면 + 버튼을 숨기고 선택 막대를 하단 탭 위에 */
+function setSelecting(on) { document.body.classList.toggle('selecting', !!on); }
+
 // ---------- 여행 선택 (모든 탭 공통) ----------
 /** 여행을 안 고른 채 타임라인·스크랩북에 들어오면 고를 여행: 여행 중 → 가장 가까운 계획 중 → 가장 최근 */
 function defaultTripId() {
@@ -1463,6 +1534,7 @@ function updateFab() {
   if (l) l.textContent = label;
 }
 function switchView(view) {
+  if (state.view !== view) { state.jsel = null; setSelecting(false); }
   state.view = view;
   let pick = false;
   if (['timeline', 'scrap'].includes(view) && state.filter === 'all' && state.trips.length) {

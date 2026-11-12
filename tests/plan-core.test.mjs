@@ -256,3 +256,22 @@ test('일기: 결과 정리 — 빈 결과 거부, 길이 제한, 확인 안내 
   assert.deepEqual(DIARY_SCHEMA.required, ['title', 'story', 'warnings']);
   assert.equal(DIARY_SCHEMA.additionalProperties, false);
 });
+
+// ---------- 이동 방법 (transit) ----------
+import { normTransit, TRANSIT_MODES } from '../supabase/functions/_shared/plan-core.ts';
+
+test('이동 방법: 스키마에 있고, 정리해서 남기고, 모르면 null', () => {
+  const props = GENERATE_SCHEMA.properties.days.items.properties.items.items;
+  assert.ok(props.required.includes('transit'));
+  assert.deepEqual(props.properties.transit.required, ['mode', 'minutes', 'detail']);
+  assert.equal(props.properties.transit.additionalProperties, false);
+  assert.ok(props.properties.transit.properties.mode.enum.includes('NONE'));
+  assert.deepEqual(normTransit({ mode: 'bus', minutes: 14.6, detail: '  공주종합버스터미널에서 시내버스 ' }), { mode: 'BUS', minutes: 15, detail: '공주종합버스터미널에서 시내버스' });
+  assert.equal(normTransit({ mode: 'NONE', minutes: null, detail: '' }), null);
+  assert.equal(normTransit({ mode: 'ROCKET', minutes: 5, detail: 'x' }), null);
+  assert.equal(normTransit({ mode: 'WALK', minutes: 99999, detail: '' }).minutes, null);
+  assert.equal(normTransit(null), null);
+  assert.ok(TRANSIT_MODES.includes('SUBWAY'));
+  const r = normalizeGenerated({ days: [{ date: '2026-11-21', items: [item({ transit: { mode: 'WALK', minutes: 10, detail: '성곽길 따라' } })] }], warnings: [] }, range);
+  assert.deepEqual(r.days[0].items[0].transit, { mode: 'WALK', minutes: 10, detail: '성곽길 따라' });
+});

@@ -23,6 +23,7 @@
     tripId: null, loadedFor: null, loading: false, error: null,
     tab: 'days', day: null, revision: 0, prefs: {},
     items: [], expenses: [], checklist: [], perPerson: false,
+    sel: null, // 일정 여러 개 고르기 (Set) — null 이면 고르기 아님
   };
   let dayMap = null;
 
@@ -137,7 +138,9 @@
     if (P.tab === 'days') body = daysHtml(t);
     else if (P.tab === 'budget') body = budgetHtml(t);
     else body = checklistHtml();
-    root.innerHTML = head + body;
+    const selBar = P.tab === 'days' && P.sel ? bulkBarHtml(P.sel.size, dayItems(P.day).length, '일정') : '';
+    root.innerHTML = head + body + selBar;
+    setSelecting(!!selBar);
     if (P.tab === 'days') drawDayMap();
   }
 
@@ -166,6 +169,96 @@
   // ----- 일자별 일정 -----
   const dayItems = (d) => P.items.filter((i) => i.day_date === d).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
 
+  // ---------- 일정 사이 이동 방법 (DB 설정 011) ----------
+  const TRANSIT = {
+    WALK: ['🚶', '걸어서'], BUS: ['🚌', '버스'], SUBWAY: ['🚇', '지하철'], TRAIN: ['🚆', '기차'], TAXI: ['🚕', '택시'],
+    CAR: ['🚗', '자동차'], BIKE: ['🚲', '자전거'], FERRY: ['⛴️', '배'], FLIGHT: ['✈️', '비행기'],
+  };
+  const transitText = (t) => (t && TRANSIT[t.mode]
+    ? `${TRANSIT[t.mode][0]} ${TRANSIT[t.mode][1]}${t.minutes ? ` 약 ${t.minutes}분` : ''}${t.detail ? ` · ${esc(t.detail)}` : ''}` : '');
+  const kmText = (m) => (m < 1000 ? `${Math.round(m / 10) * 10}m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)}km`);
+  /** 일정 사이 줄: 이동 방법(AI 추정 또는 직접 적은 것) + 앞 장소와의 직선거리 */
+  function moveRow(prev, it) {
+    const dist = prev && prev.lat != null && it.lat != null ? distM(prev, it) : null;
+    if (!it.transit && dist == null) return '';
+    const ai = it.transit && it.source === 'AI' && !it.user_edited;
+    return `<li class="pi-move" aria-label="이동">
+      ${it.transit ? `<span>${transitText(it.transit)}</span>${ai ? '<small class="muted">AI 추정</small>' : ''}` : '<span class="muted">이동 방법 미정</span>'}
+      ${dist != null && dist > 30 ? `<small class="muted">📏 직선 ${kmText(dist)}</small>` : ''}
+    </li>`;
+  }
+  function planListHtml(list) {
+    let prev = null;
+    return list.map((it, idx) => {
+      const row = (idx > 0 || it.transit) && planSt(it) !== 'CANCELLED' ? moveRow(prev, it) : '';
+      if (planSt(it) !== 'CANCELLED') prev = it;
+      return row + itemHtml(it, idx, list.length);
+    }).join('');
+  }
+
+  // ---------- 미확인 장소 다시 찾기 ----------
+  // AI 서버의 장소 확인은 서버용 카카오 키가 없으면 OpenStreetMap 만 써서 한국 장소를 잘 못 찾아요.
+  // 앱에 있는 카카오 지도 검색(geocode)으로 이름이 맞고 여행지 근처(100km 안)인 장소를 찾으면 '장소 확인'으로 바꿔요.
+  const vCache = new Map();
+  let verifying = false;
+  const unverifiedItems = () => P.items.filter((i) => PLACE_TYPES.includes(i.item_type) && i.place_name
+    && i.verification_status === 'UNVERIFIED' && planSt(i) !== 'CANCELLED');
+  function tripCenter() {
+    const pts = [...P.items.filter((i) => i.lat != null && i.verification_status === 'VERIFIED'),
+      ...state.places.filter((p) => p.trip_id === P.tripId && p.lat != null)];
+    if (!pts.length) return null;
+    return { lat: pts.reduce((a, x) => a + x.lat, 0) / pts.length, lng: pts.reduce((a, x) => a + x.lng, 0) / pts.length };
+  }
+  async function findPlace(q, center) {
+    if (vCache.has(q)) return vCache.get(q);
+    const nq = normName(q);
+    const ok = (r) => {
+      const n = normName(r.name);
+      return n.length >= 2 && nq.length >= 2 && (n.includes(nq) || nq.includes(n)) && (!center || distM(center, r) < 100000);
+    };
+    const dest = String(P.prefs.destination || '').trim();
+    let hit = null;
+    for (const query of [q, dest && !q.includes(dest) ? `${dest} ${q}` : null].filter(Boolean)) {
+      let list = [];
+      try { list = await geocode(query); } catch { /* 다음 방법으로 */ }
+      hit = list.find(ok) || null;
+      if (hit) break;
+      await sleep(1100); // OpenStreetMap 은 1초에 1번
+    }
+    vCache.set(q, hit);
+    return hit;
+  }
+  function verifyHint() {
+    const n = unverifiedItems().length;
+    if (!n || !canEdit(P.tripId)) return '';
+    return `<div class="verify-hint">⚠ 미확인 장소 ${n}곳 ${verifying ? '<span class="muted">· 지도에서 찾는 중…</span>'
+      : '<button type="button" class="chip-btn" data-act="verify-places">🔍 지도에서 다시 찾기</button>'}</div>`;
+  }
+  async function verifyPlaces(silent) {
+    const list = unverifiedItems();
+    if (verifying || !list.length || !canEdit(P.tripId)) { if (!silent && !list.length) toast('미확인 장소가 없어요'); return; }
+    verifying = true;
+    render();
+    const center = tripCenter();
+    let n = 0;
+    try {
+      for (const it of list) {
+        const hit = await findPlace(it.place_name, center);
+        if (!hit) continue;
+        try {
+          await changed(sb.from('itinerary_items').update({
+            place_name: String(hit.name).slice(0, 80), address: hit.address ? String(hit.address).slice(0, 200) : null,
+            lat: hit.lat, lng: hit.lng, verification_status: 'VERIFIED',
+          }).eq('id', it.id).select('id'));
+          n++;
+        } catch { /* 다음 일정 */ }
+      }
+    } finally { verifying = false; }
+    await reload();
+    if (n) toast(`미확인 장소 ${n}곳을 지도에서 찾아 확인했어요${list.length > n ? ` · ${list.length - n}곳은 못 찾았어요` : ''}`);
+    else if (!silent) toast('지도 검색으로도 찾지 못했어요. 일정을 눌러 장소를 직접 검색해 주세요');
+  }
+
   function daysHtml(t) {
     const days = tripDays(t);
     if (!days.length) {
@@ -191,11 +284,13 @@
         ${days.map((d, i) => `<button type="button" role="tab" aria-selected="${d === P.day}" class="day-chip ${d === P.day ? 'on' : ''}" data-day="${d}" aria-label="${i + 1}일차 ${fmtDate(d)}">
           <b>${i + 1}일차</b><small>${short(d)} ${wday(d)}</small>${P.items.some((x) => x.day_date === d) ? '<i class="dot" aria-hidden="true"></i>' : ''}</button>`).join('')}
       </div>
-      <div class="day-head"><h3>${fmtDate(P.day)}</h3>${list.length ? `<small>일정 ${list.length}개</small>` : ''}</div>
+      <div class="day-head"><h3>${fmtDate(P.day)}</h3>${list.length ? `<small>일정 ${list.length}개</small>
+        ${canEdit(P.tripId) ? `<button type="button" class="chip-btn" data-act="${P.sel ? 'sel-off' : 'sel-on'}">${P.sel ? '선택 끝' : '☑ 선택'}</button>` : ''}` : ''}</div>
       ${list.length ? `${actions}
         ${list.some((i) => i.lat != null) ? '<div id="planMap" class="mini-map plan-map" aria-label="이날 일정 지도"></div>' : ''}
-        <ol class="plan-list">${list.map((it, idx) => itemHtml(it, idx, list.length)).join('')}</ol>
-        ${unknownCost ? `<small class="hint">💡 예상 비용이 없는 일정 ${unknownCost}개는 예산 합계에서 빠져요 (금액 미확인).</small>` : ''}`
+        <ol class="plan-list">${planListHtml(list)}</ol>
+        ${unknownCost ? `<small class="hint">💡 예상 비용이 없는 일정 ${unknownCost}개는 예산 합계에서 빠져요 (금액 미확인).</small>` : ''}
+        ${verifyHint()}`
       : `<div class="day-empty">
           <p>이날 일정이 아직 없어요</p>
           ${actions}
@@ -215,7 +310,9 @@
     const st = planSt(it);
     const recs = recordsOfPlan(it.id);
     const who = (it.assignees || []).map(memberName).filter(Boolean);
-    return `<li class="plan-item st-${st.toLowerCase()}" data-item="${it.id}">
+    const picked = P.sel?.has(it.id);
+    return `<li class="plan-item st-${st.toLowerCase()} ${P.sel ? (picked ? 'picked' : 'pickable') : ''}" data-item="${it.id}" ${P.sel ? `aria-pressed="${!!picked}"` : ''}>
+      ${P.sel ? `<span class="sel-box ${picked ? 'on' : ''}" aria-hidden="true"></span>` : ''}
       <div class="pi-time">${time}</div>
       <div class="pi-body">
         <div class="pi-title">${typeIcon(it.item_type)} <b>${esc(it.title)}</b></div>
@@ -232,10 +329,9 @@
         ${recs.map((p) => `<button type="button" class="pi-rec" data-rec="${p.id}">📷 실제 ${p.visited_time ? `${hhmm(p.visited_time)} 방문` : '방문'} · ${esc(p.name)} <span aria-hidden="true">›</span></button>`).join('')}
         ${st === 'DONE' && !recs.length && canEdit(P.tripId) ? '<button type="button" class="pi-rec add" data-record>📷 실제 기록 남기기</button>' : ''}
       </div>
-      <div class="pi-tools ${state.v008 ? 'four' : ''}">
+      <div class="pi-tools ${state.v008 ? 'four' : ''} ${P.sel ? 'hidden' : ''}">
         ${state.v008 ? `<button class="icon-btn done-btn" data-done ${st === 'PLANNED' ? '' : 'disabled'} aria-label="방문 완료" title="방문 완료">✓</button>` : ''}
-        <button class="icon-btn" data-move="-1" ${idx === 0 ? 'disabled' : ''} aria-label="위로">▲</button>
-        <button class="icon-btn" data-move="1" ${idx === n - 1 ? 'disabled' : ''} aria-label="아래로">▼</button>
+        <button type="button" class="icon-btn drag-handle" data-handle aria-label="순서 바꾸기: 끌거나 카드를 길게 눌러 옮겨요 (키보드 ↑↓)" title="끌어서 순서 바꾸기">⠿</button>
         <button class="icon-btn" data-edit aria-label="수정">✏️</button>
       </div>
     </li>`;
@@ -335,17 +431,37 @@
   // ---------- 화면 이벤트 ----------
   function bind() {
     const root = el();
+    setupDrag(root);
     root.addEventListener('click', async (e) => {
+      if (Date.now() - dragEndedAt < 450) { e.preventDefault(); e.stopPropagation(); return; } // 끌어서 놓은 직후의 클릭
       const pick = e.target.closest('[data-pick-trip]');
       if (pick) { state.filter = Number(pick.dataset.pickTrip); refresh(true); return; }
       const tab = e.target.closest('[data-tab]');
-      if (tab) { P.tab = tab.dataset.tab; render(); return; }
+      if (tab) { P.tab = tab.dataset.tab; P.sel = null; render(); return; }
       const day = e.target.closest('[data-day]');
-      if (day) { P.day = day.dataset.day; render(); return; }
+      if (day) { P.day = day.dataset.day; if (P.sel) P.sel = new Set(); render(); return; }
+      // 일정 여러 개 고르기
+      const bulk = e.target.closest('[data-bulk]')?.dataset.bulk;
+      if (bulk && P.sel) {
+        const all = dayItems(P.day).map((x) => x.id);
+        if (bulk === 'all') P.sel = P.sel.size === all.length ? new Set() : new Set(all);
+        if (bulk === 'cancel') P.sel = null;
+        if (bulk === 'del') { await deleteSelectedItems(); return; }
+        render();
+        return;
+      }
+      if (P.sel) {
+        const li = e.target.closest('[data-item]');
+        if (li) {
+          const id = Number(li.dataset.item);
+          if (P.sel.has(id)) P.sel.delete(id); else P.sel.add(id);
+          render();
+          return;
+        }
+      }
       const pp = e.target.closest('[data-pp]');
       if (pp) { P.perPerson = pp.dataset.pp === '1'; render(); return; }
       const item = e.target.closest('[data-item]');
-      if (item && e.target.closest('[data-move]')) { await moveItem(Number(item.dataset.item), Number(e.target.closest('[data-move]').dataset.move)); return; }
       if (item && e.target.closest('[data-edit]')) { openItemForm(P.items.find((x) => x.id === Number(item.dataset.item))); return; }
       if (item && e.target.closest('[data-done]')) { openPlanDone(P.items.find((x) => x.id === Number(item.dataset.item))); return; }
       const rec = e.target.closest('[data-rec]');
@@ -371,6 +487,9 @@
       else if (act === 'add-expense') openExpenseForm(null);
       else if (act === 'ck-defaults') addDefaultChecks();
       else if (act === 'goto-journal') switchView('journal');
+      else if (act === 'sel-on') { P.sel = new Set(); render(); }
+      else if (act === 'sel-off') { P.sel = null; render(); }
+      else if (act === 'verify-places') verifyPlaces(false);
     });
     root.addEventListener('change', async (e) => {
       const ck = e.target.closest('[data-ck]');
@@ -443,6 +562,12 @@
           <label class="field"><span>1인 예상 비용</span><input type="number" name="cost" min="0" step="any" inputmode="decimal" value="${it?.cost_estimate ?? ''}" placeholder="모르면 비워 두기"></label>
           <label class="field"><span>통화</span><input name="currency" maxlength="3" value="${esc(it?.currency || 'KRW')}" autocapitalize="characters"></label>
         </div>
+        ${state.v011 ? `<div class="field"><span>여기까지 이동 <small>앞 일정에서 오는 방법</small></span>
+          <div class="grid2 transit-grid">
+            <select name="t_mode" aria-label="이동 수단"><option value="">정하지 않음</option>${Object.entries(TRANSIT).map(([k, [e, l]]) => `<option value="${k}" ${it?.transit?.mode === k ? 'selected' : ''}>${e} ${l}</option>`).join('')}</select>
+            <input type="number" name="t_min" min="1" max="1440" inputmode="numeric" placeholder="걸리는 시간(분)" value="${it?.transit?.minutes ?? ''}" aria-label="걸리는 시간(분)">
+          </div>
+          <input name="t_detail" maxlength="80" placeholder="예: 공주종합버스터미널에서 시내버스" value="${esc(it?.transit?.detail || '')}" style="margin-top:6px" aria-label="이동 설명"></div>` : ''}
         <label class="field"><span>메모</span><textarea name="notes" maxlength="500" rows="2">${esc(it?.notes || '')}</textarea></label>
         ${showWho ? `<div class="field"><span>함께 가는 사람 <small>안 고르면 모두 함께</small></span><div class="who-pick">
           ${members.map((m) => `<label class="chk"><input type="checkbox" name="who" value="${m.id}" ${it?.assignees?.includes(m.id) ? 'checked' : ''}><span>${esc(m.name)}</span></label>`).join('')}</div></div>` : ''}
@@ -518,6 +643,11 @@
         verification_status: status,
         cost_estimate: cost, currency, notes: f.notes.value.trim() || null,
       };
+      if (state.v011) {
+        const mode = f.t_mode.value;
+        const mins = Number(f.t_min.value);
+        row.transit = mode ? { mode, minutes: Number.isInteger(mins) && mins >= 1 && mins <= 1440 ? mins : null, detail: f.t_detail.value.trim() || null } : null;
+      }
       if (state.v008) {
         if (f.status) row.status = f.status.value;
         if (showWho) {
@@ -556,6 +686,7 @@
         lat: it.lat, lng: it.lng, verification_status: it.verification_status, cost_estimate: it.cost_estimate,
         currency: it.currency, notes: it.notes,
       };
+      if (state.v011 && it.transit) copy.transit = it.transit;
       if (state.v008 && it.assignees?.length) copy.assignees = it.assignees;
       dup.disabled = true;
       try {
@@ -578,17 +709,222 @@
     };
   }
 
-  async function moveItem(id, dir) {
-    const list = dayItems(P.day);
-    const i = list.findIndex((x) => x.id === id);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= list.length) return;
-    [list[i], list[j]] = [list[j], list[i]];
+  async function deleteSelectedItems() {
+    const ids = [...P.sel];
+    if (!ids.length) return;
+    const done = P.items.filter((i) => ids.includes(i.id) && recordsOfPlan(i.id).length).length;
+    if (!confirm(`일정 ${ids.length}개를 삭제할까요? 되돌릴 수 없어요.${done ? `\n(연결된 기록 ${done}개는 그대로 남고, 일정 연결만 풀려요)` : ''}`)) return;
     try {
-      await pq(sb.rpc('reorder_itinerary', { p_trip_id: P.tripId, p_day: P.day, p_ids: list.map((x) => x.id) }));
+      const rows = await pq(sb.from('itinerary_items').delete().in('id', ids).select('id'));
+      P.sel = null;
       await reload();
-      el().querySelector(`[data-item="${id}"] [data-move="${dir}"]`)?.focus();
-    } catch (err) { toast(err.message); if (err.code === 'PT409') reload(); }
+      toast(rows.length === ids.length ? `일정 ${rows.length}개를 삭제했어요` : `일정 ${rows.length}개를 삭제했어요 · ${ids.length - rows.length}개는 권한이 없거나 이미 지워졌어요`);
+    } catch (err) { toast(err.message); }
+  }
+  // 키보드(핸들에서 ↑↓)로 한 칸 옮기기 — 드래그와 같은 저장·시간 계산
+  async function moveItem(id, dir) {
+    const ids = dayItems(P.day).map((x) => x.id);
+    const i = ids.indexOf(id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    await commitOrder(ids);
+    el().querySelector(`[data-item="${id}"] [data-handle]`)?.focus();
+  }
+
+  // =====================================================================
+  // 순서 바꾸기 저장: 새 순서 → 시간 다시 계산(plan-time.js) → 순서·시간을 한 번에 저장
+  // 화면은 먼저 바꾸고(낙관적), 저장에 실패하면 원래 순서·시간으로 되돌려요
+  // =====================================================================
+  const TIME_NOTE = {
+    missing: '시간이 없는 일정이 있어서 순서만 바꾸고 시간은 그대로 두었어요',
+    overlap: '원래 시간이 겹치는 일정이 있어서 순서만 바꾸고 시간은 그대로 두었어요. 겹치는 시간을 먼저 고쳐 주세요',
+  };
+  let saving = false;
+  async function commitOrder(newIds) {
+    if (saving) return;
+    const list = dayItems(P.day);
+    if (newIds.join() === list.map((x) => x.id).join()) { render(); return; }
+    const r = window.PlanTime.recalcTimes(list, newIds);
+    if (!r.ok && (r.reason === 'overflow' || r.reason === 'mismatch')) {
+      render();
+      toast(r.reason === 'overflow' ? '시간을 다시 맞추면 자정을 넘겨서 저장하지 않았어요. 다음 날로 옮길 일정은 수정에서 날짜를 바꿔 주세요' : '일정 목록이 바뀌었어요. 다시 해 주세요');
+      return;
+    }
+    const backup = list.map((x) => ({ id: x.id, sort_order: x.sort_order, start_time: x.start_time, end_time: x.end_time, user_edited: x.user_edited }));
+    // 화면 먼저
+    newIds.forEach((id, k) => {
+      const it = P.items.find((x) => x.id === id);
+      it.sort_order = k + 1;
+      if (r.ok) { it.start_time = `${r.times[id].start}:00`; it.end_time = `${r.times[id].end}:00`; }
+    });
+    render();
+    saving = true;
+    try {
+      const starts = r.ok ? newIds.map((id) => r.times[id].start) : null;
+      const ends = r.ok ? newIds.map((id) => r.times[id].end) : null;
+      try {
+        await pq(sb.rpc('reorder_itinerary_times', { p_trip_id: P.tripId, p_day: P.day, p_ids: newIds, p_starts: starts, p_ends: ends }));
+      } catch (err) {
+        if (err.code !== 'NEEDS_MIGRATION') throw err;
+        await saveOrderFallback(newIds, r, backup); // DB 설정 012 전
+      }
+      await reload();
+      if (!r.ok) toast(TIME_NOTE[r.reason]);
+      else toast(r.changed.length ? `순서를 바꾸고 일정 ${r.changed.length}개의 시간을 다시 맞췄어요` : '순서를 바꿨어요');
+    } catch (err) {
+      // 저장 실패 → 원래대로
+      for (const b of backup) Object.assign(P.items.find((x) => x.id === b.id) || {}, b);
+      render();
+      toast(err.code === 'PT409' ? err.message : `저장하지 못해서 원래대로 돌렸어요: ${err.message}`);
+      if (err.code === 'PT409') reload();
+    } finally { saving = false; }
+  }
+  // migrate-012 전: 순서 저장 → 시간 저장, 중간에 실패하면 원래 순서·시간으로 되돌리기 시도
+  async function saveOrderFallback(newIds, r, backup) {
+    await pq(sb.rpc('reorder_itinerary', { p_trip_id: P.tripId, p_day: P.day, p_ids: newIds }));
+    if (!r.ok) return;
+    const done = [];
+    try {
+      for (const id of r.changed) {
+        await changed(sb.from('itinerary_items').update({ start_time: r.times[id].start, end_time: r.times[id].end, user_edited: true }).eq('id', id).select('id'));
+        done.push(id);
+      }
+    } catch (err) {
+      for (const b of backup.filter((x) => done.includes(x.id))) {
+        await sb.from('itinerary_items').update({ start_time: b.start_time, end_time: b.end_time, user_edited: b.user_edited }).eq('id', b.id).then(() => {}, () => {});
+      }
+      await sb.rpc('reorder_itinerary', { p_trip_id: P.tripId, p_day: P.day, p_ids: backup.map((x) => x.id) }).then(() => {}, () => {});
+      throw err;
+    }
+  }
+
+  // =====================================================================
+  // 드래그 앤 드롭: 휴대폰은 카드를 0.4초 길게 누르기, PC 는 ⠿ 핸들을 마우스로 끌기
+  // (라이브러리 없이 터치·포인터 이벤트로. 스크롤과 충돌하지 않게 길게 누르기 전에 움직이면 스크롤로 봐요)
+  // =====================================================================
+  const LONG_PRESS = 400;
+  let drag = null;
+  let press = null;
+  let dragEndedAt = 0;
+  const canDrag = (li) => li && P.tab === 'days' && !P.sel && !saving && canEdit(P.tripId) && li.closest('.plan-list');
+  const scroller = () => $('#view-timeline');
+
+  function beginDrag(li, y) {
+    const ol = li.closest('.plan-list');
+    ol.classList.add('dragging');                     // 이동 줄(🚌…)은 잠깐 숨기고 카드만
+    const items = [...ol.querySelectorAll('li.plan-item')];
+    const rects = items.map((x) => x.getBoundingClientRect());
+    const from = items.indexOf(li);
+    const step = items.length > 1 ? rects[1].top - rects[0].top - rects[0].height + rects[from].height : rects[from].height;
+    drag = { li, items, rects, from, to: from, startY: y, lastY: y, startScroll: scroller()?.scrollTop || 0, step, raf: 0 };
+    li.classList.add('drag-active');
+    document.body.classList.add('plan-dragging');
+    navigator.vibrate?.(15);
+    autoScroll();
+  }
+  function moveDrag(y) {
+    if (!drag) return;
+    drag.lastY = y;
+    const sc = scroller();
+    const dy = y - drag.startY + ((sc?.scrollTop || 0) - drag.startScroll);
+    const { li, items, rects, from } = drag;
+    li.style.transform = `translateY(${dy}px) scale(1.02)`;
+    const center = rects[from].top + rects[from].height / 2 + dy;
+    let to = 0;
+    items.forEach((x, k) => { if (k !== from && rects[k].top + rects[k].height / 2 < center) to++; });
+    drag.to = to;
+    items.forEach((x, k) => {
+      if (k === from) return;
+      let shift = 0;
+      if (from < to && k > from && k <= to) shift = -drag.step;
+      if (to < from && k >= to && k < from) shift = drag.step;
+      x.style.transform = shift ? `translateY(${shift}px)` : '';
+    });
+  }
+  // 화면 위·아래 끝에 가까우면 저절로 스크롤
+  function autoScroll() {
+    if (!drag) return;
+    const sc = scroller();
+    if (sc) {
+      const box = sc.getBoundingClientRect();
+      const bottom = Math.min(box.bottom, window.innerHeight) - 90; // 하단 탭 위
+      const top = box.top + 70;
+      let v = 0;
+      if (drag.lastY < top) v = -Math.ceil((top - drag.lastY) / 6);
+      else if (drag.lastY > bottom) v = Math.ceil((drag.lastY - bottom) / 6);
+      if (v) { sc.scrollTop += Math.max(-18, Math.min(18, v)); moveDrag(drag.lastY); }
+    }
+    drag.raf = requestAnimationFrame(autoScroll);
+  }
+  function endDrag(cancel) {
+    if (!drag) return;
+    const { li, items, from, to } = drag;
+    cancelAnimationFrame(drag.raf);
+    items.forEach((x) => { x.style.transform = ''; });
+    li.classList.remove('drag-active');
+    li.closest('.plan-list')?.classList.remove('dragging');
+    document.body.classList.remove('plan-dragging');
+    drag = null;
+    dragEndedAt = Date.now();
+    if (cancel || from === to) { render(); return; }  // 취소 → 원래 순서
+    const ids = items.map((x) => Number(x.dataset.item));
+    const [moved] = ids.splice(from, 1);
+    ids.splice(to, 0, moved);
+    commitOrder(ids);
+  }
+  function clearPress() { if (press) clearTimeout(press.timer); press = null; }
+
+  function setupDrag(root) {
+    // --- 터치: 길게 누르기(카드) 또는 핸들 바로 끌기 ---
+    root.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) { clearPress(); return; }
+      const li = e.target.closest('li.plan-item');
+      if (!canDrag(li)) return;
+      const onHandle = !!e.target.closest('[data-handle]');
+      if (!onHandle && e.target.closest('button, a, input, select, textarea, label')) return; // 완료·수정 버튼은 그대로
+      const y = e.touches[0].clientY;
+      const x = e.touches[0].clientX;
+      clearPress();
+      if (onHandle) { beginDrag(li, y); return; }
+      press = { li, x, y, timer: setTimeout(() => { if (press?.li === li) { const p = press; press = null; beginDrag(li, p.y); } }, LONG_PRESS) };
+    }, { passive: true });
+    root.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      if (press && (Math.abs(t.clientY - press.y) > 8 || Math.abs(t.clientX - press.x) > 8)) clearPress(); // 스크롤로 봄
+      if (drag) { e.preventDefault(); moveDrag(t.clientY); }
+    }, { passive: false });
+    root.addEventListener('touchend', () => { clearPress(); if (drag) endDrag(false); });
+    root.addEventListener('touchcancel', () => { clearPress(); if (drag) endDrag(true); });
+    // 길게 눌렀을 때 뜨는 글자 선택·메뉴 막기
+    root.addEventListener('contextmenu', (e) => { if (drag || press) e.preventDefault(); });
+    // --- 마우스·펜: 핸들 끌기 ---
+    root.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch' || e.button !== 0) return;
+      const h = e.target.closest('[data-handle]');
+      const li = h?.closest('li.plan-item');
+      if (!h || !canDrag(li)) return;
+      e.preventDefault();
+      beginDrag(li, e.clientY);
+      const mv = (ev) => moveDrag(ev.clientY);
+      const up = (ev) => {
+        window.removeEventListener('pointermove', mv);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('keydown', esc);
+        endDrag(ev.type !== 'pointerup');
+      };
+      const esc = (ev) => { if (ev.key === 'Escape') up({ type: 'cancel' }); };
+      window.addEventListener('pointermove', mv);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('keydown', esc);
+    });
+    // --- 키보드: 핸들에서 ↑↓ ---
+    root.addEventListener('keydown', (e) => {
+      const h = e.target.closest('[data-handle]');
+      if (!h || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
+      e.preventDefault();
+      moveItem(Number(h.closest('[data-item]').dataset.item), e.key === 'ArrowUp' ? -1 : 1);
+    });
   }
 
   // ---------- AI 호출 ----------
@@ -687,7 +1023,7 @@
     out.innerHTML = `
       <h3>AI 초안 미리보기 <small class="muted">(아직 저장 안 됨)</small></h3>
       ${res.warnings?.length ? `<div class="notice warn"><b>확인해 주세요</b><ul>${res.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
-      ${unverified ? `<div class="notice">⚠ 실제 장소를 찾지 못한 일정 ${unverified}개는 <b>미확인</b>으로 표시돼요.</div>` : ''}
+      ${unverified ? `<div class="notice">⚠ AI 서버가 실제 장소를 찾지 못한 일정 ${unverified}개는 <b>미확인</b>으로 보여요. 저장하면 앱의 지도 검색으로 한 번 더 찾아 확인해요.</div>` : ''}
       ${res.days.map((d, di) => `<div class="draft-day"><h4>${di + 1}일차 · ${fmtDate(d.date)}</h4>
         ${d.items.length ? d.items.map((it) => `<label class="draft-item">
           <input type="checkbox" data-tmp="${esc(it.temporaryId)}" checked>
@@ -697,6 +1033,7 @@
               ${it.placeName && it.placeName !== it.title ? `<span>📍 ${esc(it.placeName)}</span>` : ''}
               ${PLACE_TYPES.includes(it.type) && it.placeQuery ? (it.verificationStatus === 'VERIFIED' ? '<span class="vbadge ok">✓ 장소 확인</span>' : '<span class="vbadge warn">⚠ 미확인 장소</span>') : ''}
               ${it.estimatedCost != null ? `<span>💰 약 ${money(it.estimatedCost, it.currency)} (AI 추정)</span>` : ''}
+              ${it.transit ? `<span class="pv-move">${transitText(it.transit)}</span>` : ''}
             </span>
             ${it.notes ? `<span class="pi-notes">${esc(it.notes)}</span>` : ''}
             ${it.reason ? `<span class="pi-reason">💬 ${esc(it.reason)}</span>` : ''}</span>
@@ -737,6 +1074,8 @@
       closeSheet();
       await reload(); // 저장된 결과를 서버에서 다시 읽은 뒤 성공 표시
       toast(okMsg);
+      // AI 서버가 확인하지 못한 장소는 앱의 지도 검색(카카오)으로 한 번 더 찾아요
+      if (unverifiedItems().length) setTimeout(() => verifyPlaces(true), 1500);
     } catch (err) {
       btn.disabled = false;
       btn.textContent = label;
@@ -925,6 +1264,7 @@
         trip_id: P.tripId, day_date: to, sort_order: ++base[to], item_type: i.item_type, title: i.title,
         start_time: i.start_time, end_time: i.end_time, place_name: i.place_name, address: i.address, lat: i.lat, lng: i.lng,
         verification_status: i.verification_status, cost_estimate: i.cost_estimate, currency: i.currency, notes: i.notes, source: i.source,
+        ...(state.v011 && i.transit ? { transit: i.transit } : {}),
       }));
       try {
         await pq(sb.from('itinerary_items').insert(rows).select('id'));
@@ -1017,6 +1357,7 @@
               ${PLACE_TYPES.includes(it.type) && it.placeQuery ? (it.verificationStatus === 'VERIFIED' ? '<span class="vbadge ok">✓ 장소 확인</span>' : '<span class="vbadge warn">⚠ 미확인 장소</span>') : ''}
               ${o.distanceKm != null ? `<span>📏 지금 동선에서 약 ${o.distanceKm}km</span>${o.distanceKm > 10 ? '<span class="vbadge warn">동선에서 멀어요</span>' : ''}` : ''}
               ${it.estimatedCost != null ? `<span>💰 약 ${money(it.estimatedCost, it.currency)} (AI 추정)</span>` : ''}
+              ${it.transit ? `<span class="pv-move">${transitText(it.transit)}</span>` : ''}
               ${o.conflict ? '<span class="vbadge warn">⚠ 지금 일정과 시간이 겹쳐요</span>' : ''}
             </span>
             ${o.reason || it.reason ? `<span class="pi-reason">💬 ${esc(o.reason || it.reason)}</span>` : ''}</span>
@@ -1159,8 +1500,9 @@
 
   // ---------- 연결 ----------
   bind();
-  window.addEventListener('travel:view', (e) => { if (e.detail === 'timeline') load(); else { dayMap?.remove(); dayMap = null; } });
+  window.addEventListener('travel:view', (e) => { P.sel = null; if (e.detail === 'timeline') load(); else { dayMap?.remove(); dayMap = null; } });
   window.addEventListener('travel:refresh', () => {
+    if (P.tripId !== (state.filter === 'all' ? null : state.filter)) P.sel = null;
     // 여행을 바꾸거나 여행 정보(날짜)를 고친 뒤
     if (state.view === 'timeline') load(true);
     else P.loadedFor = null;

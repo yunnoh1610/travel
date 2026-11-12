@@ -69,7 +69,15 @@ SQL Editor에서 `supabase\migrate-009-journal-scrapbooks.sql` 을 한 번 실�
 SQL Editor에서 `supabase\migrate-010-roles.sql` 을 한 번 실행해요. (결과: **✔ 공동 여행 역할 설정 완료**)
 멤버마다 역할(만든 사람 · 편집자 · 보기 전용)을 정해요. **지금 멤버는 모두 편집자**로 시작해서 지금처럼 함께 고칠 수 있어요. 새 초대 링크는 기본이 보기 전용이고, 편집자 링크는 만든 사람만 만들 수 있어요. 이미 보낸 링크는 편집자로 들어와요. 되돌리기: `supabase\rollback-010-roles.sql`
 
-> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` → `migrate-006-scrapbook-design.sql` → `migrate-007-trip-info.sql` → `migrate-008-plan-status.sql` → `migrate-009-journal-scrapbooks.sql` → `migrate-010-roles.sql` 순서로 실행하면 돼요.
+## 8-8. 일정 사이 이동 방법 (2026-11 추가)
+SQL Editor에서 `supabase\migrate-011-transit.sql` 을 한 번 실행해요. (결과: **✔ 일정 이동 방법 설정 완료**)
+일정마다 "앞 일정에서 여기까지 가는 방법"(수단·대략 시간·설명) 칸을 더하고, AI 일정을 저장할 때 함께 저장해요. 실행 전에도 앱은 동작하고 이동 칸만 숨겨져요. 되돌리기: `supabase\rollback-011-transit.sql`
+
+## 8-9. 타임라인 드래그 — 순서·시간 한 번에 저장 (2026-11 추가)
+SQL Editor에서 `supabase\migrate-012-reorder-times.sql` 을 한 번 실행해요. (결과: **✔ 타임라인 순서·시간 저장 설정 완료**)
+일정 카드를 끌어 순서를 바꿀 때 새 순서와 다시 계산한 시간을 한 번에 저장해요 (중간에 실패하면 아무것도 안 바뀜). 테이블은 그대로이고 함수만 더해요. 실행 전에는 예전 방식(순서 저장 → 시간 저장, 실패하면 되돌리기)으로 동작해요. 되돌리기: `supabase\rollback-012-reorder-times.sql`
+
+> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` → `migrate-006-scrapbook-design.sql` → `migrate-007-trip-info.sql` → `migrate-008-plan-status.sql` → `migrate-009-journal-scrapbooks.sql` → `migrate-010-roles.sql` → `migrate-011-transit.sql` → `migrate-012-reorder-times.sql` 순서로 실행하면 돼요.
 
 ## 9. 카카오 장소 검색 연결 (한국 장소 이름 정확하게)
 1. https://developers.kakao.com → 카카오 계정으로 로그인 (처음이면 개발자 등록 약관 동의)
@@ -85,6 +93,9 @@ SQL Editor에서 `supabase\migrate-010-roles.sql` 을 한 번 실행해요. (결
 
 > JavaScript 키는 원래 웹페이지에 공개되는 키예요. 3번에서 등록한 사이트에서만 동작해요.
 > **REST API 키 / Admin 키는 알려주지 마세요.**
+
+> (선택) **AI 일정의 장소 확인을 더 정확하게**: 같은 카카오 앱의 **REST API 키**를 Supabase Secret 으로 직접 넣으면 AI 서버가 일정을 만들 때부터 카카오로 장소를 확인해요 (지금은 서버에서 OpenStreetMap 만 써서 한국 장소가 '미확인'으로 많이 나와요. 앱이 저장 뒤 카카오로 한 번 더 찾아 주긴 해요).
+> 터미널에서 `C:\claude\travel` 폴더에 있는 상태로: `npx supabase secrets set KAKAO_REST_API_KEY=여기에키 --project-ref bkqvcexlcqfciscdgodr` (키는 Claude에게 알려주지 말고 직접 입력)
 
 ## 친구가 비밀번호를 잊었을 때 (관리자가 초기화)
 아이디 가입은 이메일이 없어서 재설정 메일을 보낼 수 없어요. 대신 SQL Editor에서 아래를 실행하면

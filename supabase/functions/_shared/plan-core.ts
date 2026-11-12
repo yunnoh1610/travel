@@ -13,6 +13,7 @@ export const LIMITS = {
   title: 80,
   notes: 500,
   reason: 80,
+  transitDetail: 80,
   placeQuery: 80,
   instruction: 300,
   listItem: 40,
@@ -43,6 +44,21 @@ export interface DraftItem {
   notes: string | null;
   /** AI가 이 일정을 고른 이유 (미리보기에만 보여 줘요) */
   reason?: string | null;
+  /** 바로 앞 일정(하루 첫 일정은 숙소·출발지)에서 여기까지 가는 방법 — AI 추정 */
+  transit?: Transit | null;
+}
+
+export const TRANSIT_MODES = ['WALK', 'BUS', 'SUBWAY', 'TRAIN', 'TAXI', 'CAR', 'BIKE', 'FERRY', 'FLIGHT'] as const;
+export interface Transit { mode: typeof TRANSIT_MODES[number]; minutes: number | null; detail: string | null }
+/** AI가 준 이동 정보를 정리 (모르는 수단·NONE 이면 null, 시간은 1~1440분) */
+export function normTransit(raw: unknown): Transit | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const mode = String(r.mode || '').toUpperCase();
+  if (!(TRANSIT_MODES as readonly string[]).includes(mode)) return null;
+  const m = Number(r.minutes);
+  const minutes = r.minutes != null && Number.isFinite(m) && m >= 1 && m <= 1440 ? Math.round(m) : null;
+  return { mode: mode as Transit['mode'], minutes, detail: cleanText(r.detail, LIMITS.transitDetail) };
 }
 
 export interface GenerateInput {
@@ -213,7 +229,11 @@ export const SYSTEM_PROMPT = `너는 한국어 여행 일정 플래너다. 제�
 - estimatedCost 는 1인 기준 대략적인 금액(통화 currency)이며 모르면 null 로 둔다.
 - 시간은 24시간 "HH:MM" 형식이며 자정을 넘기지 않는다. 같은 날 일정의 시간이 겹치지 않게 한다.
 - notes 는 짧게(100자 이내) 쓴다.
-- reason 에는 이 일정을 추천하는 이유를 한 문장(40자 이내)으로 쓴다 (예: "해 질 녘 야경이 좋아요", "숙소에서 걸어서 5분"). 확인하지 못한 사실을 단정하지 않는다.`;
+- reason 에는 이 일정을 추천하는 이유를 한 문장(40자 이내)으로 쓴다 (예: "해 질 녘 야경이 좋아요", "숙소에서 걸어서 5분"). 확인하지 못한 사실을 단정하지 않는다.
+- transit 에는 바로 앞 일정에서 이 일정까지 가는 방법을 쓴다 (하루 첫 일정은 숙소나 출발지에서 오는 방법). 사용자가 고른 교통수단을 우선하되 가까우면 WALK.
+  mode 는 WALK·BUS·SUBWAY·TRAIN·TAXI·CAR·BIKE·FERRY·FLIGHT 중 하나, 이동이 필요 없거나 모르면 NONE. minutes 는 대략적인 소요 분(모르면 null).
+  detail 에는 40자 이내로 어디서 무엇을 타는지 쓴다 (예: "공주종합버스터미널에서 시내버스", "공산성 정문까지 걸어서"). 버스 번호·요금·배차처럼 확실하지 않은 정보는 쓰지 않는다.
+  일정 사이 이동 시간을 고려해 시작 시간을 정한다. 도시 간 긴 이동(예: 서울→공주)은 따로 MOVE 일정으로 만든다.`;
 
 function dataBlock(obj: unknown): string {
   // JSON 으로 감싸서 데이터와 지시를 분리 (태그를 닫는 문자열은 깨뜨림)
@@ -302,7 +322,7 @@ export function buildRevisePrompt(input: ReviseInput, range: TripRange, items: C
 const ITEM_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['type', 'title', 'startTime', 'endTime', 'placeQuery', 'estimatedCost', 'currency', 'notes', 'reason'],
+  required: ['type', 'title', 'startTime', 'endTime', 'placeQuery', 'estimatedCost', 'currency', 'notes', 'reason', 'transit'],
   properties: {
     type: { type: 'string', enum: [...ITEM_TYPES] },
     title: { type: 'string', description: '일정 이름 (40자 이내)' },
@@ -313,6 +333,17 @@ const ITEM_SCHEMA = {
     currency: { type: 'string', description: 'ISO 통화 코드 (예: KRW)' },
     notes: { type: 'string', description: '짧은 메모 (100자 이내), 없으면 빈 문자열' },
     reason: { type: 'string', description: '추천 이유 한 문장 (40자 이내), 없으면 빈 문자열' },
+    transit: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['mode', 'minutes', 'detail'],
+      description: '바로 앞 일정(하루 첫 일정은 숙소·출발지)에서 여기까지 가는 방법',
+      properties: {
+        mode: { type: 'string', enum: [...TRANSIT_MODES, 'NONE'] },
+        minutes: { type: ['integer', 'null'], description: '대략적인 소요 분, 모르면 null' },
+        detail: { type: 'string', description: '어디서 무엇을 타는지 (40자 이내), 없으면 빈 문자열' },
+      },
+    },
   },
 };
 
@@ -398,6 +429,7 @@ function normItem(raw: Record<string, unknown>, date: string, warnings: string[]
     currency: CURRENCY_RE.test(cur) ? cur : 'KRW',
     notes: cleanText(raw.notes, LIMITS.notes),
     reason: cleanText(raw.reason, LIMITS.reason),
+    transit: normTransit(raw.transit),
   };
 }
 

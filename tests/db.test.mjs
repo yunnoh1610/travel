@@ -64,6 +64,10 @@ before(async () => {
   await db.exec(sql('migrate-009-journal-scrapbooks.sql'));
   await db.exec(sql('migrate-010-roles.sql'));
   await db.exec(sql('migrate-010-roles.sql'));
+  await db.exec(sql('migrate-011-transit.sql'));
+  await db.exec(sql('migrate-011-transit.sql'));
+  await db.exec(sql('migrate-012-reorder-times.sql'));
+  await db.exec(sql('migrate-012-reorder-times.sql'));
 
   for (const [id, name] of [[A, 'aa'], [B, 'bb'], [C, 'cc']]) {
     await db.query("insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, jsonb_build_object('name', $3::text))",
@@ -419,6 +423,54 @@ test('010: 초대 링크 — 기본 보기 전용, 편집자 링크는 만든 �
   await rows(A, 'delete from trip_members where trip_id = $1 and user_id = $2', [trip, C]);
 });
 
+test('011: 일정 사이 이동 방법 — AI 초안에서 저장, 모르는 수단은 버림, 직접 고치기', async () => {
+  const d = await makeDraft('GENERATE', { days: [{ date: '2026-11-23', items: [
+    { temporaryId: 't1', date: '2026-11-23', type: 'PLACE', title: '공산성', startTime: '10:00', verificationStatus: 'UNVERIFIED', currency: 'KRW',
+      transit: { mode: 'bus', minutes: 15, detail: '공주종합버스터미널에서 시내버스' } },
+    { temporaryId: 't2', date: '2026-11-23', type: 'MEAL', title: '국밥', startTime: '12:00', verificationStatus: 'UNVERIFIED', currency: 'KRW',
+      transit: { mode: 'ROCKET', minutes: 1, detail: 'x' } },
+    { temporaryId: 't3', date: '2026-11-23', type: 'CAFE', title: '카페', startTime: '14:00', verificationStatus: 'UNVERIFIED', currency: 'KRW',
+      transit: { mode: 'WALK', minutes: 'abc', detail: '' } },
+  ] }] });
+  await rows(A, 'select * from apply_ai_draft($1, $2, $3)', [d.id, ['t1', 't2', 't3'], d.rev]);
+  const got = await rows(A, "select title, transit from itinerary_items where ai_draft_id = $1 order by sort_order", [d.id]);
+  assert.deepEqual(got.map((x) => x.transit), [
+    { mode: 'BUS', minutes: 15, detail: '공주종합버스터미널에서 시내버스' }, null, { mode: 'WALK', minutes: null, detail: null }]);
+  // 멤버가 직접 고치기, 이상한 값은 거부
+  const id = (await rows(B, "update itinerary_items set transit = '{\"mode\":\"TAXI\",\"minutes\":7}' where ai_draft_id = $1 and title = '국밥' returning id", [d.id]))[0].id;
+  assert.ok(id);
+  await fails(B, "update itinerary_items set transit = '{\"mode\":\"ROCKET\"}' where id = $1", [id], /itinerary_transit_check/);
+  await fails(B, "update itinerary_items set transit = '[1,2]' where id = $1", [id], /itinerary_transit_check/);
+});
+
+test('012: 드래그 — 순서와 시간을 한 번에, 실패하면 아무것도 안 바뀜', async () => {
+  const day = '2026-11-21';
+  const mk = async (title, s, e) => (await rows(A, 'insert into itinerary_items (trip_id, day_date, title, start_time, end_time) values ($1, $2, $3, $4, $5) returning id', [trip, day, title, s, e]))[0].id;
+  // 그날 일정을 이 테스트 것만 남김
+  await rows(A, 'delete from itinerary_items where trip_id = $1 and day_date = $2', [trip, day]);
+  const a = await mk('A', '11:00', '11:10');
+  const b = await mk('B', '12:00', '13:30');
+  const c = await mk('C', '14:00', '15:00');
+  const get = async () => (await rows(A, "select title, to_char(start_time, 'HH24:MI') s, to_char(end_time, 'HH24:MI') e, user_edited from itinerary_items where trip_id = $1 and day_date = $2 order by sort_order", [trip, day]));
+  // 명세 3-2: A, C, B
+  await rows(B, 'select reorder_itinerary_times($1, $2, $3, $4, $5)', [trip, day, [a, c, b], ['11:00', '12:00', '13:30'], ['11:10', '13:00', '15:00']]);
+  const r = await get();
+  assert.deepEqual(r.map((x) => `${x.title} ${x.s}~${x.e}`), ['A 11:00~11:10', 'C 12:00~13:00', 'B 13:30~15:00']);
+  assert.deepEqual(r.map((x) => x.user_edited), [false, true, true], '시간이 바뀐 일정만 직접 고친 것으로');
+  // 시간 없이 순서만
+  await rows(A, 'select reorder_itinerary_times($1, $2, $3, null, null)', [trip, day, [c, a, b]]);
+  assert.deepEqual((await get()).map((x) => `${x.title} ${x.s}`), ['C 12:00', 'A 11:00', 'B 13:30']);
+  // 한 일정의 시간이 잘못되면(끝<시작) 전체가 그대로 (하나의 저장 작업)
+  const before = await get();
+  await fails(A, 'select reorder_itinerary_times($1, $2, $3, $4, $5)', [trip, day, [a, b, c], ['11:00', '12:00', '15:00'], ['11:10', '13:30', '14:00']], /itinerary_time_order/);
+  assert.deepEqual(await get(), before);
+  // 빠진 일정·남·보기 전용은 거부
+  await fails(A, 'select reorder_itinerary_times($1, $2, $3, null, null)', [trip, day, [a, b]], /그 사이 일정이 바뀌었어요/);
+  await fails(C, 'select reorder_itinerary_times($1, $2, $3, null, null)', [trip, day, [a, b, c]], /고칠 권한/);
+  await fails(D, 'select reorder_itinerary_times($1, $2, $3, null, null)', [trip, day, [a, b, c]], /고칠 권한/);
+  await fails(A, 'select reorder_itinerary_times($1, $2, $3, $4, $5)', [trip, day, [a, b, c], ['11:00'], ['11:10']], /맞지 않아요/);
+});
+
 test('멤버가 나가면 새 자료도 못 봄 (TC-15)', async () => {
   assert.ok((await rows(B, 'select id from itinerary_items where trip_id = $1', [trip])).length > 0);
   await rows(B, 'delete from trip_members where trip_id = $1 and user_id = $2', [trip, B]);
@@ -440,7 +492,7 @@ test('되돌리기 SQL 이 기존 테이블을 남기고 새 테이블만 지움
   await x.exec(SUPABASE_STUB);
   for (const f of ['schema.sql', 'migrate-002-username.sql', 'migrate-003-memories.sql', 'migrate-004-planner-scrapbook.sql',
     'migrate-005-record-time-plan-link.sql', 'migrate-006-scrapbook-design.sql', 'migrate-007-trip-info.sql', 'migrate-008-plan-status.sql',
-    'migrate-009-journal-scrapbooks.sql', 'migrate-010-roles.sql', 'rollback-010-roles.sql', 'rollback-009-journal-scrapbooks.sql', 'rollback-008-plan-status.sql', 'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
+    'migrate-009-journal-scrapbooks.sql', 'migrate-010-roles.sql', 'migrate-011-transit.sql', 'migrate-012-reorder-times.sql', 'rollback-012-reorder-times.sql', 'rollback-011-transit.sql', 'rollback-010-roles.sql', 'rollback-009-journal-scrapbooks.sql', 'rollback-008-plan-status.sql', 'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
     'rollback-005-record-time-plan-link.sql', 'rollback-004-planner-scrapbook.sql']) {
     await x.exec(sql(f));
   }

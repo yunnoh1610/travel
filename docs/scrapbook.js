@@ -43,7 +43,7 @@
   const COLORS = ['#2d2a26', '#6E5FAE', '#c2410c', '#1f5378', '#0f766e', '#ffffff'];
   const MAX_HISTORY = 40;
 
-  const S = { tripId: null, loadedFor: null, loading: false, error: null, pages: [], allPages: [], books: [], bookId: null, inAlbum: false, els: new Map() };
+  const S = { tripId: null, loadedFor: null, loading: false, error: null, pages: [], allPages: [], books: [], bookId: null, inAlbum: false, sel: null, els: new Map() };
   const shared = () => window.PlannerShared;
   const root = () => $('#scrapbook');
   const trip = () => state.trips.find((t) => t.id === S.tripId);
@@ -73,7 +73,7 @@
   // ---------- 불러오기 ----------
   async function load(force = false) {
     const id = state.filter === 'all' ? null : state.filter;
-    if (id !== S.tripId) S.inAlbum = false;
+    if (id !== S.tripId) { S.inAlbum = false; S.sel = null; }
     S.tripId = id;
     if (!id) { render(); return; }
     if (!force && S.loadedFor === id) { render(); return; }
@@ -293,20 +293,24 @@
     const head = `<div class="section-head sb-album-head">
         ${state.v009 ? '<button type="button" class="icon-btn ghost" data-act="albums" aria-label="앨범 목록으로">←</button>' : ''}
         <h2>📔 ${esc(bk?.title || t.title)}</h2>
-        <div class="sb-head-btns">${S.pages.length ? '<button class="chip-btn" data-act="story" aria-label="스토리로 보기">▶ 스토리</button>' : ''}
-          ${bk ? '<button type="button" class="icon-btn ghost" data-act="book-menu" aria-label="앨범 이름 바꾸기·삭제">⋯</button>' : ''}</div></div>
+        <div class="sb-head-btns">${S.pages.length && !S.sel ? '<button class="chip-btn" data-act="story" aria-label="스토리로 보기">▶ 스토리</button>' : ''}
+          ${S.pages.length && (typeof canEdit !== 'function' || canEdit(t)) ? `<button type="button" class="chip-btn" data-act="${S.sel ? 'sel-off' : 'sel-on'}">${S.sel ? '선택 끝' : '☑ 선택'}</button>` : ''}
+          ${bk && !S.sel ? '<button type="button" class="icon-btn ghost" data-act="book-menu" aria-label="앨범 이름 바꾸기·삭제">⋯</button>' : ''}</div></div>
       ${ro}`;
     r.innerHTML = head + (S.pages.length ? `<div class="sb-pages">${S.pages.map((p, i) => `
-      <div class="sb-page-card" data-page="${p.id}">
-        <button class="sb-thumb" data-view aria-label="${esc(p.title || `${i + 1}쪽`)} 보기">${canvasHtml(p, S.els.get(p.id) || [], photos, true)}</button>
+      <div class="sb-page-card ${S.sel ? (S.sel.has(p.id) ? 'picked' : 'pickable') : ''}" data-page="${p.id}">
+        ${S.sel ? `<span class="sel-box ${S.sel.has(p.id) ? 'on' : ''}" aria-hidden="true"></span>` : ''}
+        <button class="sb-thumb" data-view aria-label="${esc(p.title || `${i + 1}쪽`)} ${S.sel ? '고르기' : '보기'}" ${S.sel ? `aria-pressed="${S.sel.has(p.id)}"` : ''}>${canvasHtml(p, S.els.get(p.id) || [], photos, true)}</button>
         <div class="sb-page-meta"><b>${esc(p.title || `${i + 1}쪽`)}</b><small class="muted">${p.page_date ? shared().short(p.page_date) : ''} · ${(S.els.get(p.id) || []).length}개 요소</small></div>
-        <div class="sb-page-tools">
+        <div class="sb-page-tools ${S.sel ? 'hidden' : ''}">
           <button class="btn-sub sb-edit-btn" data-open>✏️ 편집</button>
           <button class="icon-btn" data-pmenu aria-label="페이지 메뉴" aria-haspopup="dialog">⋯</button>
         </div>
       </div>`).join('')}</div>`
       : `<div class="empty"><div class="big">📔</div><b>${bk ? `'${esc(bk.title)}'에 아직 페이지가 없어요` : '아직 스크랩북 페이지가 없어요'}</b><br><small>여행 사진으로 하루 한 장씩 꾸며 보세요</small>
           ${typeof canEdit !== 'function' || canEdit(t) ? '<br><button type="button" class="primary small-cta" data-act="new-page">＋ 페이지 추가</button>' : ''}</div>`);
+    if (S.sel) r.insertAdjacentHTML('beforeend', bulkBarHtml(S.sel.size, S.pages.length, '페이지'));
+    setSelecting(!!S.sel);
     hydrate(r, S.pages.flatMap((p) => S.els.get(p.id) || []));
     fitThumbs();
   }
@@ -336,9 +340,28 @@
       if (act === 'book-menu') return bookMenu();
       const bk = e.target.closest('[data-book]');
       if (bk) { pickBook(Number(bk.dataset.book)); render(); return; }
+      if (act === 'sel-on') { S.sel = new Set(); render(); return; }
+      if (act === 'sel-off') { S.sel = null; render(); return; }
+      const bulk = e.target.closest('[data-bulk]')?.dataset.bulk;
+      if (bulk && S.sel) {
+        if (bulk === 'all') S.sel = S.sel.size === S.pages.length ? new Set() : new Set(S.pages.map((p) => p.id));
+        if (bulk === 'cancel') S.sel = null;
+        if (bulk === 'del') return deleteSelectedPages();
+        render();
+        return;
+      }
+      if (S.sel) {
+        const pc = e.target.closest('[data-page]');
+        if (pc) {
+          const id = Number(pc.dataset.page);
+          if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id);
+          render();
+          return;
+        }
+      }
       const al = e.target.closest('[data-album]');
       if (al) { pickBook(Number(al.dataset.album)); S.inAlbum = true; render(); window.scrollTo?.(0, 0); return; }
-      if (act === 'albums') { S.inAlbum = false; render(); return; }
+      if (act === 'albums') { S.inAlbum = false; S.sel = null; render(); return; }
       if (act === 'story') return openStory(0);
       if (act === 'reload') return load(true);
       if (act === 'new-trip') return openTripForm();
@@ -406,6 +429,23 @@
     } catch (err) { toast(err.message); }
   }
 
+  // 고른 페이지 여러 장 삭제 (원래 사진 기록은 그대로, 스크랩북 전용 사진은 다른 페이지가 안 쓰면 저장소에서도 지움)
+  async function deleteSelectedPages() {
+    const pages = S.pages.filter((p) => S.sel?.has(p.id));
+    if (!pages.length) return;
+    if (!confirm(`페이지 ${pages.length}장을 삭제할까요? 되돌릴 수 없어요. (원래 사진 기록은 그대로예요)`)) return;
+    const ids = new Set(pages.map((p) => p.id));
+    const assets = pages.flatMap((p) => (S.els.get(p.id) || []).map((e) => e.assetPath)).filter(Boolean);
+    try {
+      const rows = await shared().pq(sb.from('scrapbook_pages').delete().in('id', [...ids]).select('id'));
+      const used = new Set([...S.els].filter(([id]) => !ids.has(id)).flatMap(([, els]) => els.map((e) => e.assetPath)));
+      await removeFiles(assets.filter((a) => !used.has(a))).catch(() => {});
+      ids.forEach((id) => localStorage.removeItem(`sbDraft:${id}`));
+      S.sel = null;
+      await load(true);
+      toast(rows.length === ids.size ? `페이지 ${rows.length}장을 삭제했어요` : `페이지 ${rows.length}장을 삭제했어요 · ${ids.size - rows.length}장은 권한이 없거나 이미 지워졌어요`);
+    } catch (err) { toast(err.message); }
+  }
   async function deletePage(page) {
     if (!confirm(`'${page.title || '이 페이지'}'를 삭제할까요? 되돌릴 수 없어요. (원래 사진 기록은 그대로예요)`)) return;
     const assets = (S.els.get(page.id) || []).map((e) => e.assetPath).filter(Boolean);
@@ -2139,6 +2179,6 @@
   bind();
   bindEditor();
   bindStory();
-  window.addEventListener('travel:view', (e) => { if (e.detail === 'scrap') load(); });
+  window.addEventListener('travel:view', (e) => { S.sel = null; if (e.detail === 'scrap') load(); });
   window.addEventListener('travel:refresh', () => { if (state.view === 'scrap' && !ED) load(true); else if (state.view !== 'scrap') S.loadedFor = null; });
 })();
