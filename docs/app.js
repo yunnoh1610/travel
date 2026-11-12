@@ -192,11 +192,20 @@ const db = {
       ? await q(sb.from('trip_members').select(`trip_id, user_id, ${state.v010 ? 'role, ' : ''}profiles(name, username)`).in('trip_id', ids))
       : [];
     await signPaths(trips.map((t) => t.cover_path));
+    // 여행별 일정 수 (DB 설정 004 전이면 0)
+    const planCount = new Map();
+    if (ids.length) {
+      try {
+        const r = await sb.from('itinerary_items').select('trip_id').in('trip_id', ids);
+        for (const x of r.error ? [] : r.data) planCount.set(x.trip_id, (planCount.get(x.trip_id) || 0) + 1);
+      } catch { /* 일정 수 없이 */ }
+    }
     const key = (t) => t.start_date || (t.created_at || '').slice(0, 10);
     return trips
       .map((t) => ({
         ...t,
         place_count: Number(t.place_count) || 0,
+        plan_count: planCount.get(t.id) || 0,
         cover: t.cover_path ? urlOf(t.cover_path) : null,
         members: members.filter((m) => m.trip_id === t.id)
           .map((m) => ({ id: m.user_id, name: m.profiles?.name || '?', username: m.profiles?.username || '',
@@ -1104,11 +1113,14 @@ async function refresh(fit = false) {
   window.dispatchEvent(new CustomEvent('travel:refresh'));
 }
 
+/** "기록 3 · 일정 12" — 일정이 없으면 "기록 3" */
+const countLabel = (places, plans) => (plans ? `기록 ${places} · 일정 ${plans}` : `기록 ${places}`);
 function renderFilter() {
   const sel = $('#tripFilter');
   const total = state.trips.reduce((n, t) => n + t.place_count, 0);
-  sel.innerHTML = `<option value="all">🌏 모든 여행 (${total})</option>`
-    + state.trips.map((t) => `<option value="${t.id}">${kindEmoji(t.kind)} ${esc(t.title)} (${t.place_count})</option>`).join('');
+  const totalPlans = state.trips.reduce((n, t) => n + (t.plan_count || 0), 0);
+  sel.innerHTML = `<option value="all">🌏 모든 여행 (${countLabel(total, totalPlans)})</option>`
+    + state.trips.map((t) => `<option value="${t.id}">${kindEmoji(t.kind)} ${esc(t.title)} (${countLabel(t.place_count, t.plan_count)})</option>`).join('');
   sel.value = String(state.filter);
 }
 $('#tripFilter').onchange = (e) => {
@@ -1302,6 +1314,11 @@ $('#journal').onclick = (e) => {
 window.refreshPlans = async () => {
   planCache.clear();
   state.plans = await db.plans(state.filter);
+  for (const t of state.trips) {
+    if (state.filter === 'all' || state.filter === t.id) t.plan_count = state.plans.filter((i) => i.trip_id === t.id).length;
+  }
+  renderFilter();
+  renderTrips();
   renderJournal();
   renderMap(false);
 };
@@ -1329,7 +1346,7 @@ function tripsListHtml() {
         ${t.cover ? `<img class="thumb" src="${esc(t.cover)}" alt="" loading="lazy">` : `<div class="thumb">${kindIcon(t.kind)}</div>`}
         <span class="body">
           <b>${esc(t.title)}</b>
-          <small>${statusBadge(t)} ${kindIcon(t.kind)} ${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳</small>
+          <small>${statusBadge(t)} ${kindIcon(t.kind)} ${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 기록 ${t.place_count}곳${t.plan_count ? ` · 📋 일정 ${t.plan_count}개` : ''}</small>
           ${t.country || t.cities?.length || t.party_type ? `<small>🌏 ${esc([t.cities?.join(', '), t.country].filter(Boolean).join(' · '))}${t.party_type ? ` · ${PARTY[t.party_type] || ''}` : ''}</small>` : ''}
           <small>👥 ${t.members.map((m) => esc(m.name)).join(', ')}</small>
         </span>
@@ -2785,7 +2802,7 @@ function openTrip(id) {
   const editor = canEdit(t);
   const roleOf = (m) => (state.v010 ? `<span class="role-chip ${m.role.toLowerCase()}">${ROLES[m.role][0]} ${ROLES[m.role][1]}</span>` : '');
   const body = openSheet(`<h2>${kindIcon(t.kind)} ${esc(t.title)}</h2>
-    <p class="muted" style="margin-top:-6px">${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳${state.v010 ? ` · 나: ${ROLES[t.myRole][1]}` : ''}</p>
+    <p class="muted" style="margin-top:-6px">${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 기록 ${t.place_count}곳${t.plan_count ? ` · 📋 일정 ${t.plan_count}개` : ''}${state.v010 ? ` · 나: ${ROLES[t.myRole][1]}` : ''}</p>
     ${roBanner(t)}
     <div class="btn-row">
       <button class="btn" data-act="view">${ic('🗺️')} 지도로 보기</button>
