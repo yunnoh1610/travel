@@ -98,6 +98,7 @@
       P.loading = false;
     }
     render();
+    if (!P.error) setTimeout(() => fixTransits(), 300);
   }
   // 일정을 바꾼 뒤: 이 화면과 여행 타임라인을 함께 새로 (같은 일정 데이터)
   async function reload() {
@@ -203,7 +204,7 @@
     const transitMode = STEP_MODES.includes(it.transit?.mode);
     return `<li class="pi-move" aria-label="이동">
       <div class="pi-move-head">
-        ${it.transit ? `<span>${transitText(it.transit)}</span>${ai ? '<small class="muted">AI 추정</small>' : ''}` : '<span class="muted">이동 방법 미정</span>'}
+        ${it.transit ? `<span>${transitText(it.transit)}</span>${it.transit.est === 'DIST' ? '<small class="muted" title="두 장소의 실제 거리로 계산한 시간이에요. 신호·배차에 따라 달라질 수 있어요">거리로 계산</small>' : ai ? '<small class="muted">AI 추정</small>' : ''}` : '<span class="muted">이동 방법 미정</span>'}
         ${dist != null && dist > 30 ? `<small class="muted">📏 직선 ${kmText(dist)}</small>` : ''}
         ${it.lat != null ? `<a class="route-btn" href="${esc(routeUrl(prev, it))}" target="_blank" rel="noopener noreferrer" aria-label="${esc(it.title)}까지 지도 앱 길찾기">🗺️ 길찾기</a>` : ''}
       </div>
@@ -280,6 +281,7 @@
     } finally { verifying = false; }
     await reload();
     if (n) toast(`미확인 장소 ${n}곳을 지도에서 찾아 확인했어요${list.length > n ? ` · ${list.length - n}곳은 못 찾았어요` : ''}`);
+    if (n) await fixTransits();
     else if (!silent) toast('지도 검색으로도 찾지 못했어요. 일정을 눌러 장소를 직접 검색해 주세요');
   }
 
@@ -679,7 +681,7 @@
       if (state.v011) {
         const mode = f.t_mode.value;
         const mins = Number(f.t_min.value);
-        row.transit = mode ? { mode, minutes: Number.isInteger(mins) && mins >= 1 && mins <= 1440 ? mins : null, detail: f.t_detail.value.trim() || null } : null;
+        row.transit = mode ? { mode, minutes: Number.isInteger(mins) && mins >= 1 && mins <= 1440 ? mins : null, detail: f.t_detail.value.trim() || null, byUser: true } : null;
         if (row.transit && state.v013) {
           row.transit.steps = STEP_MODES.includes(mode) && f.t_steps
             ? f.t_steps.value.split('\n').map((x) => x.trim().slice(0, 60)).filter(Boolean).slice(0, 4) : [];
@@ -777,6 +779,36 @@
     missing: '시간이 없는 일정이 있어서 순서만 바꾸고 시간은 그대로 두었어요',
     overlap: '원래 시간이 겹치는 일정이 있어서 순서만 바꾸고 시간은 그대로 두었어요. 겹치는 시간을 먼저 고쳐 주세요',
   };
+  // ---------- 이동 정보를 실제 거리로 바로잡기 (docs/plan-time.js 의 estimateTransit) ----------
+  async function saveTransits(changes) {
+    let n = 0;
+    for (const c of changes) {
+      try { await changed(sb.from('itinerary_items').update({ transit: c.transit }).eq('id', c.id).select('id')); n++; } catch { /* 다음 구간 */ }
+    }
+    return n;
+  }
+  let fixing = false;
+  /** AI가 좌표 없이 짐작한 이동 수단·시간을 거리로 다시 계산 (직접 고친 이동 정보·이미 계산한 정보는 그대로) */
+  async function fixTransits() {
+    if (!state.v011 || fixing || saving || !P.tripId || !canEdit(P.tripId)) return;
+    const changes = [];
+    for (const d of [...new Set(P.items.map((i) => i.day_date))]) {
+      const seq = dayItems(d).filter((x) => planSt(x) !== 'CANCELLED');
+      seq.forEach((it, k) => {
+        if (!k || !it.transit || it.source !== 'AI' || it.transit.est === 'DIST' || it.transit.byUser) return;
+        const t = window.PlanTime.estimateTransit(seq[k - 1], it, P.prefs.transport, it.transit, false);
+        if (t && JSON.stringify(t) !== JSON.stringify(it.transit)) changes.push({ id: it.id, transit: t });
+      });
+    }
+    if (!changes.length) return;
+    fixing = true;
+    let n = 0;
+    try { n = await saveTransits(changes); } finally { fixing = false; }
+    if (!n) return;
+    await reload();
+    toast(`이동 ${n}구간의 수단·시간을 실제 거리로 다시 계산했어요`);
+  }
+
   let saving = false;
   async function commitOrder(newIds) {
     if (saving) return;
@@ -789,6 +821,19 @@
       return;
     }
     const backup = list.map((x) => ({ id: x.id, sort_order: x.sort_order, start_time: x.start_time, end_time: x.end_time, user_edited: x.user_edited }));
+    // 이동 정보는 "앞 일정에서 여기까지" — 순서가 바뀌어 앞 일정이 달라진 구간은 새 구간으로 다시 계산
+    const live = (ids) => ids.map((id) => list.find((x) => x.id === id)).filter((x) => planSt(x) !== 'CANCELLED');
+    const prevOf = (seq) => new Map(seq.map((x, k) => [x.id, k ? seq[k - 1].id : null]));
+    const oldPrev = prevOf(live(list.map((x) => x.id)));
+    const newSeq = live(newIds);
+    const newPrev = prevOf(newSeq);
+    const moves = state.v011 ? newSeq.map((it, k) => {
+      if (oldPrev.get(it.id) === newPrev.get(it.id)) return null;
+      // 맨 앞으로 온 일정: 예전 앞 일정에서 오던 이동 정보는 더 맞지 않아서 비움
+      if (!k) return it.transit ? { id: it.id, transit: null } : null;
+      const t = window.PlanTime.estimateTransit(newSeq[k - 1], it, P.prefs.transport, it.transit, true);
+      return t ? { id: it.id, transit: t } : null;
+    }).filter(Boolean) : [];
     // 화면 먼저
     newIds.forEach((id, k) => {
       const it = P.items.find((x) => x.id === id);
@@ -806,9 +851,11 @@
         if (err.code !== 'NEEDS_MIGRATION') throw err;
         await saveOrderFallback(newIds, r, backup); // DB 설정 012 전
       }
+      const moved = moves.length ? await saveTransits(moves) : 0;
       await reload();
-      if (!r.ok) toast(TIME_NOTE[r.reason]);
-      else toast(r.changed.length ? `순서를 바꾸고 일정 ${r.changed.length}개의 시간을 다시 맞췄어요` : '순서를 바꿨어요');
+      const moveNote = moved ? ` · 이동 ${moved}구간도 새 순서로 다시 계산했어요` : '';
+      if (!r.ok) toast(TIME_NOTE[r.reason] + moveNote);
+      else toast((r.changed.length ? `순서를 바꾸고 일정 ${r.changed.length}개의 시간을 다시 맞췄어요` : '순서를 바꿨어요') + moveNote);
     } catch (err) {
       // 저장 실패 → 원래대로
       for (const b of backup) Object.assign(P.items.find((x) => x.id === b.id) || {}, b);
@@ -1114,6 +1161,7 @@
       toast(okMsg);
       // AI 서버가 확인하지 못한 장소는 앱의 지도 검색(카카오)으로 한 번 더 찾아요
       if (unverifiedItems().length) setTimeout(() => verifyPlaces(true), 1500);
+      else fixTransits();
     } catch (err) {
       btn.disabled = false;
       btn.textContent = label;

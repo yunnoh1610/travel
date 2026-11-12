@@ -6,7 +6,7 @@ import vm from 'node:vm';
 
 const ctx = {};
 vm.runInNewContext(readFileSync(new URL('../docs/plan-time.js', import.meta.url), 'utf8'), ctx);
-const { recalcTimes, toMin } = ctx.PlanTime;
+const { recalcTimes, toMin, estimateTransit } = ctx.PlanTime;
 const t = (id, s, e) => ({ id, start_time: s ? `${s}:00` : null, end_time: e ? `${e}:00` : null });
 const view = (r, ids) => ids.map((id) => `${r.times[id].start}~${r.times[id].end}`);
 
@@ -64,4 +64,40 @@ test('예외: 목록이 맞지 않으면 거부 (mismatch), 분 변환', () => {
   assert.equal(recalcTimes([t('A', '10:00', '11:00')], ['A', 'B']).reason, 'mismatch');
   assert.equal(toMin('09:05:00'), 545);
   assert.equal(toMin(null), null);
+});
+
+// ---------- 이동 수단·시간을 거리로 계산 ----------
+const P0 = { lat: 36.4646, lng: 127.1265 };
+const at = (dLatM) => ({ lat: P0.lat + dLatM / 111320, lng: P0.lng }); // 북쪽으로 dLatM 미터
+const plain = (x) => (x ? JSON.parse(JSON.stringify(x)) : x);
+
+test('이동 계산: 1.2km 안쪽은 걸어서 (택시라고 해도), 시간은 거리로', () => {
+  const r = plain(estimateTransit(P0, at(900), 'PUBLIC_TRANSIT', { mode: 'TAXI', minutes: 15, detail: '택시로', steps: [] }));
+  assert.equal(r.mode, 'WALK');
+  assert.equal(r.minutes, 16); // 900m × 1.3 / 75
+  assert.equal(r.detail, null, '수단이 바뀌면 예전 설명은 지움');
+  assert.equal(r.est, 'DIST');
+});
+
+test('이동 계산: 걸어서 30분이 넘으면 여행 조건 교통수단으로, 긴 이동(기차)은 그대로', () => {
+  const r = plain(estimateTransit(P0, at(4300), 'TAXI', { mode: 'WALK', minutes: 10, detail: '', steps: [] }));
+  assert.equal(r.mode, 'TAXI');
+  assert.equal(r.minutes, 14); // 3 + 5590/500 ≈ 14
+  const far = plain(estimateTransit(P0, at(2045), 'PUBLIC_TRANSIT', { mode: 'WALK', minutes: 15 }));
+  assert.deepEqual([far.mode, far.minutes], ['BUS', 20], '2km(걸어서 약 35분)는 버스로');
+  const near = plain(estimateTransit(P0, at(1500), 'PUBLIC_TRANSIT', { mode: 'WALK', minutes: 10 }));
+  assert.deepEqual([near.mode, near.minutes], ['WALK', 26], '1.5km 는 걸어서 약 26분 그대로');
+  assert.equal(estimateTransit(P0, at(50000), 'CAR', { mode: 'TRAIN', minutes: 240 }), null);
+  assert.equal(estimateTransit(P0, { lat: null, lng: null }, 'CAR', { mode: 'BUS' }), null, '위치가 없으면 계산 안 함');
+});
+
+test('이동 계산: 같은 수단이면 설명·단계 유지, 순서가 바뀐 구간은 지움', () => {
+  const old = { mode: 'BUS', minutes: 20, detail: '터미널에서 시내버스', steps: ['터미널 앞 탑승', '하차'] };
+  const keep = plain(estimateTransit(P0, at(3000), 'PUBLIC_TRANSIT', old));
+  assert.equal(keep.mode, 'BUS');
+  assert.equal(keep.minutes, 25); // 13 + 3900/300 = 26 → 25
+  assert.deepEqual(keep.steps, ['터미널 앞 탑승', '하차']);
+  const moved = plain(estimateTransit(P0, at(3000), 'PUBLIC_TRANSIT', old, true));
+  assert.equal(moved.detail, null);
+  assert.deepEqual(moved.steps, []);
 });

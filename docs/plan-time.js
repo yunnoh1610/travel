@@ -53,7 +53,48 @@
     return { ok: true, times, changed };
   }
 
-  const api = { recalcTimes, toMin, toHHMM };
+  // =====================================================================
+  // 일정 사이 이동 수단·시간을 실제 좌표(직선거리)로 계산
+  //   AI는 장소 좌표를 모른 채 시간을 짐작해서(대부분 10~15분) 실제와 달라요. 위치가 확인된 뒤 거리로 바로잡아요.
+  //   길 거리 ≈ 직선 × 1.3 · 걸어서 1분 75m · 택시·자동차 평균 시속 30km(20km 넘으면 60km) + 3분
+  //   버스 시속 18km + 기다림·걷기 13분 · 지하철 시속 30km + 13분 · 자전거 시속 15km
+  //   1.2km 안쪽은 걸어서, 걸어서 30분이 넘으면 여행 조건의 교통수단으로 · 기차·배·비행기는 그대로(긴 이동)
+  // =====================================================================
+  const PREF_MODE = { PUBLIC_TRANSIT: 'BUS', CAR: 'CAR', WALK: 'BUS', TAXI: 'TAXI', BIKE: 'BIKE', MIXED: 'BUS' };
+  const LONG = ['TRAIN', 'FERRY', 'FLIGHT'];
+  function haversine(a, b) {
+    const R = 6371000;
+    const r = (d) => (d * Math.PI) / 180;
+    const h = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lng - a.lng) / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  const round5 = (m) => (m > 20 ? Math.round(m / 5) * 5 : Math.round(m));
+  function minutesFor(mode, route) {
+    if (mode === 'WALK') return Math.max(1, Math.round(route / 75));
+    if (mode === 'CAR' || mode === 'TAXI') return round5(3 + (route <= 20000 ? route / 500 : 40 + (route - 20000) / 1000));
+    if (mode === 'BUS') return round5(13 + route / 300);
+    if (mode === 'SUBWAY') return round5(13 + route / 500);
+    if (mode === 'BIKE') return round5(Math.max(1, route / 250));
+    return null;
+  }
+  /**
+   * prev → it 이동을 거리로 계산. old: 지금 이동 정보, pref: 여행 조건 교통수단, segmentChanged: 순서가 바뀌어 앞 일정이 달라짐
+   * 돌려줌: 새 이동 정보 { mode, minutes, detail, steps, est: 'DIST' } 또는 null(계산할 수 없음 · 바꿀 필요 없음)
+   */
+  function estimateTransit(prev, it, pref, old, segmentChanged) {
+    if (!prev || prev.lat == null || prev.lng == null || it.lat == null || it.lng == null) return null;
+    if (old && LONG.includes(old.mode)) return null;
+    const route = haversine(prev, it) * 1.3;
+    const walk = Math.max(1, Math.round(route / 75));
+    let mode = old?.mode || null;
+    if (route <= 1200) mode = 'WALK';
+    else if (!mode || (mode === 'WALK' && walk > 30)) mode = PREF_MODE[pref] || 'BUS';
+    const minutes = minutesFor(mode, route);
+    const keepText = !segmentChanged && old && old.mode === mode;
+    return { mode, minutes, detail: keepText ? old.detail || null : null, steps: keepText ? old.steps || [] : [], est: 'DIST' };
+  }
+
+  const api = { recalcTimes, toMin, toHHMM, estimateTransit, haversine };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PlanTime = api;
 })(typeof window !== 'undefined' ? window : globalThis);
