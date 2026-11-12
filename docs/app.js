@@ -584,7 +584,9 @@ function openSheet(html, onClose) {
   sheet._onClose?.();
   clearTimeout(sheetHideTimer);
   const body = $('.sheet-body', sheet);
-  body.onclick = null; // 이전 시트의 클릭 처리기가 남지 않도록
+  body.onclick = null; // 이전 시트의 처리기가 남지 않도록
+  body.onchange = null;
+  body.oninput = null;
   body.innerHTML = `<div class="grabber"></div><button class="sheet-close" aria-label="닫기">✕</button>${html}`;
   body.scrollTop = 0;
   $('.sheet-close', body).onclick = closeSheet;

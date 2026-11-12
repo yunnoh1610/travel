@@ -102,8 +102,10 @@
     if (e.type === 'IMAGE') {
       const src = srcOf(e, photos, small);
       const alt = c.alt || photos.get(e.photoId)?.placeName || '여행 사진';
-      return `<div class="sb-photo frame-${esc(c.frame || 'none')}">
-        ${src ? `<img src="${esc(src)}" alt="${esc(alt)}" draggable="false" loading="lazy">` : '<div class="sb-missing">사진이 지워졌어요</div>'}
+      const cr = validCrop(c.crop);
+      const imgStyle = cr ? ` style="position:absolute;max-width:none;object-fit:fill;width:${100 / cr.w}%;height:${100 / cr.h}%;left:${(-cr.x / cr.w) * 100}%;top:${(-cr.y / cr.h) * 100}%"` : '';
+      return `<div class="sb-photo frame-${esc(c.frame || 'none')}"><div class="sb-crop">
+        ${src ? `<img src="${esc(src)}" alt="${esc(alt)}" draggable="false" loading="lazy"${imgStyle}>` : '<div class="sb-missing">사진이 지워졌어요</div>'}</div>
         ${c.frame === 'polaroid' && c.caption ? `<div class="sb-caption">${esc(c.caption)}</div>` : ''}</div>`;
     }
     if (e.type === 'TEXT') {
@@ -118,10 +120,17 @@
     if (DECO_SHAPES.includes(c.shape)) return `<canvas class="sb-deco" data-el="${esc(e.id)}" role="img" aria-label="${esc(c.text || '장식')}"></canvas>`;
     return `<div class="sb-sticker" style="font-size:${Math.round(Math.min(e.width, e.height) * 0.86)}px" role="img" aria-label="스티커">${esc(c.sticker || '⭐')}</div>`;
   }
+  // 자르기 영역 (0~1 비율). 이상한 값이면 자르지 않은 것으로
+  function validCrop(cr) {
+    if (!cr || typeof cr !== 'object') return null;
+    const v = [cr.x, cr.y, cr.w, cr.h].map(Number);
+    if (v.some((x) => !Number.isFinite(x)) || v[2] <= 0.01 || v[3] <= 0.01 || v[0] < 0 || v[1] < 0 || v[0] + v[2] > 1.0001 || v[1] + v[3] > 1.0001) return null;
+    return { x: v[0], y: v[1], w: v[2], h: v[3] };
+  }
   const elStyle = (e) => `left:${e.x}px;top:${e.y}px;width:${e.width}px;height:${e.height}px;transform:rotate(${e.rotation}deg);z-index:${e.zIndex}`;
   function canvasHtml(page, els, photos, small) {
     return `<div class="sb-canvas bg-${esc(page.background || 'paper')}">${[...els].sort((a, b) => a.zIndex - b.zIndex)
-      .map((e) => `<div class="sb-el type-${e.type.toLowerCase()}" style="${elStyle(e)}">${elInner(e, photos, small)}</div>`).join('')}</div>`;
+      .map((e) => `<div class="sb-el type-${e.type.toLowerCase()}${e.content?.locked ? ' locked' : ''}" style="${elStyle(e)}">${elInner(e, photos, small)}</div>`).join('')}</div>`;
   }
   /** 화면에 넣은 뒤: 못 불러온 사진은 안내로 바꾸고, 장식(도장·티켓·라벨)을 그림 */
   function hydrate(container, els) {
@@ -504,6 +513,13 @@
     ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, x, y, w, h);
   }
 
+  // 자른 영역이 있으면 그 부분만, 없으면 cover 처럼
+  function drawPhoto(ctx, img, x, y, w, h, crop) {
+    const cr = validCrop(crop);
+    if (!cr) { drawCover(ctx, img, x, y, w, h); return; }
+    ctx.drawImage(img, cr.x * img.width, cr.y * img.height, cr.w * img.width, cr.h * img.height, x, y, w, h);
+  }
+
   function drawMissing(ctx, x, y, w, h) {
     ctx.save();
     ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
@@ -534,7 +550,7 @@
       const pad = w * 0.04; // CSS padding 의 % 는 모두 너비 기준
       const iw = w - pad * 2;
       const ih = h - pad - w * 0.16;
-      if (img) drawCover(ctx, img, x + pad, y + pad, iw, Math.max(1, ih)); else drawMissing(ctx, x + pad, y + pad, iw, Math.max(1, ih));
+      if (img) drawPhoto(ctx, img, x + pad, y + pad, iw, Math.max(1, ih), c.crop); else drawMissing(ctx, x + pad, y + pad, iw, Math.max(1, ih));
       if (c.caption) {
         ctx.save();
         ctx.beginPath(); ctx.rect(x + w * 0.04, y + h * 0.86, w * 0.92, h * 0.12); ctx.clip();
@@ -549,7 +565,7 @@
     }
     ctx.save();
     if (frame === 'round') { roundRect(ctx, x, y, w, h, 40); ctx.clip(); }
-    if (img) drawCover(ctx, img, x, y, w, h); else drawMissing(ctx, x, y, w, h);
+    if (img) drawPhoto(ctx, img, x, y, w, h, c.crop); else drawMissing(ctx, x, y, w, h);
     ctx.restore();
     if (frame === 'tape') {
       const tw = w * 0.3;
@@ -1070,6 +1086,7 @@
     canvas.querySelectorAll('.sb-el').forEach((node, i) => {
       const e = [...ED.els].sort((a, b) => a.zIndex - b.zIndex)[i];
       node.dataset.id = e.id;
+      if (e.content?.locked) return; // 배경 사진: 배경 창에서 바꾸거나 빼요
       node.tabIndex = 0;
       node.setAttribute('role', 'button');
       node.setAttribute('aria-label', `${{ IMAGE: '사진', TEXT: '글자', STICKER: '스티커' }[e.type]}${e.type === 'TEXT' ? `: ${e.content.text || ''}` : ''}`);
@@ -1111,15 +1128,15 @@
   function drawTools() {
     const t = $('#sbEditor .sb-tools');
     const e = selEl();
-    if (!e) {
-      t.innerHTML = `<div class="sb-add">
+    // 넣기 막대(사진·글자·스티커·배경)는 언제나 보이고, 요소를 고르면 그 위에 세부 도구가 나와요
+    const addBar = `<div class="sb-add">
         <button data-add="photo"><span>📷</span>사진</button>
         <button data-add="text"><span>🔤</span>글자</button>
         <button data-add="sticker"><span>🌟</span>스티커</button>
         <button data-add="bg"><span>🎨</span>배경</button></div>`;
-      return;
-    }
+    if (!e) { t.innerHTML = addBar; return; }
     t.innerHTML = `<div class="sb-ctx">
+      ${e.type === 'IMAGE' ? '<button data-tool="crop">✂️ 자르기</button>' : ''}
       ${e.type === 'TEXT' ? '<button data-tool="edit">✏️ 글·글꼴·배경</button>' : ''}
       ${e.type === 'STICKER' && DECO_SHAPES.includes(e.content.shape) ? '<button data-tool="deco">✏️ 글 수정</button>' : ''}
       ${e.type === 'IMAGE' ? '<button data-tool="frame">🖼️ 액자</button>' : ''}
@@ -1129,7 +1146,7 @@
       <button data-tool="down">⬇ 뒤로</button>
       <button data-tool="dup">⧉ 복제</button>
       <button data-tool="del" class="danger">🗑 삭제</button>
-      <button data-tool="done">✓ 선택 해제</button></div>`;
+      <button data-tool="done">✓ 선택 해제</button></div>${addBar}`;
   }
 
   // 바꾸기 전에 기록 (되돌리기용) / 바꾼 뒤 표시
@@ -1350,6 +1367,7 @@
     if (name === 'edit') return editText(e);
     if (name === 'deco') return editDeco(e);
     if (name === 'frame') return pickFrame(e);
+    if (name === 'crop') return cropPhoto(e);
     snapshot();
     if (name === 'rotL' || name === 'rotR') e.rotation = ((e.rotation + (name === 'rotL' ? -15 : 15) + 540) % 360) - 180;
     else if (name === 'up') {
@@ -1415,6 +1433,134 @@
       e.content = { ...c, text: f.text.value.trim(), ...(f.sub ? { sub: f.sub.value.trim() } : {}) };
       closeSheet();
       changedNow();
+    };
+  }
+
+  // 사진에서 실제로 보이는 칸 (폴라로이드는 테두리 안쪽)
+  const innerBox = (e) => (e.content?.frame === 'polaroid'
+    ? { w: e.width * 0.92, h: Math.max(1, e.height - e.width * 0.2) } : { w: e.width, h: e.height });
+  const CROP_RATIOS = [['free', '자유'], ['1', '1:1'], ['1.3333', '4:3'], ['0.75', '3:4'], ['1.7778', '16:9'], ['0.5625', '9:16']];
+
+  function cropPhoto(e) {
+    const src = srcOf(e, photoIndex(), false);
+    if (!src) { toast('사진을 불러오지 못해 자를 수 없어요'); return; }
+    const body = openSheet(`<h2>✂️ 사진 자르기</h2>
+      <div class="cats crop-ratios" role="radiogroup" aria-label="비율">${CROP_RATIOS.map(([k, l], i) => `<label><input type="radio" name="ratio" value="${k}" ${i ? '' : 'checked'}><span>${l}</span></label>`).join('')}</div>
+      <div class="crop-stage"><div class="crop-wrap">
+        <img class="crop-img" src="${esc(src)}" alt="자를 사진" draggable="false">
+        <div class="crop-box" data-c="move" aria-label="자를 영역">
+          <i data-c="nw"></i><i data-c="ne"></i><i data-c="sw"></i><i data-c="se"></i>
+        </div>
+      </div></div>
+      <small class="hint">상자를 끌어 옮기고, 모서리를 끌어 크기를 바꿔요. 원본 사진은 그대로예요.</small>
+      <div class="exp-actions">
+        <button type="button" class="btn-sub" data-cr="reset">원래 사진대로</button>
+        <button type="button" class="btn-main" data-cr="apply">자르기</button>
+      </div>`);
+    const img = $('.crop-img', body);
+    const wrap = $('.crop-wrap', body);
+    const box = $('.crop-box', body);
+    let nat = null;
+    let rect = null;
+    let ratio = null; // 너비/높이 (원본 픽셀 기준), null = 자유
+    const MIN = 0.06;
+    const draw = () => {
+      box.style.left = `${rect.x * 100}%`;
+      box.style.top = `${rect.y * 100}%`;
+      box.style.width = `${rect.w * 100}%`;
+      box.style.height = `${rect.h * 100}%`;
+    };
+    // 비율에 맞게 높이 다시 (원본 픽셀 비율 기준), 사진 밖으로 나가지 않게
+    const fitRatio = (r, keepCenter = true) => {
+      if (!ratio) return r;
+      let w = r.w;
+      let h = (w * nat.w) / (nat.h * ratio);
+      if (h > 1) { h = 1; w = (h * nat.h * ratio) / nat.w; }
+      const cx = r.x + r.w / 2;
+      const cy = r.y + r.h / 2;
+      return keepCenter
+        ? { x: clamp(cx - w / 2, 0, 1 - w), y: clamp(cy - h / 2, 0, 1 - h), w, h }
+        : { ...r, w, h };
+    };
+    const init = () => {
+      if (nat) return;
+      nat = { w: img.naturalWidth, h: img.naturalHeight };
+      const cur = validCrop(e.content.crop);
+      if (cur) rect = cur;
+      else { // 지금 화면에 보이는 부분(가운데 맞춤)에서 시작
+        const ib = innerBox(e);
+        const A = ib.w / ib.h;
+        const I = nat.w / nat.h;
+        rect = I > A ? { x: (1 - A / I) / 2, y: 0, w: A / I, h: 1 } : { x: 0, y: (1 - I / A) / 2, w: 1, h: I / A };
+      }
+      draw();
+    };
+    // 이미 받아 둔 사진이면 load 가 먼저 끝났을 수 있어서 바로 시작
+    if (img.complete && img.naturalWidth) init(); else img.addEventListener('load', init, { once: true });
+    img.addEventListener('error', () => { toast('사진을 불러오지 못했어요'); closeSheet(); }, { once: true });
+
+    // 아래 창은 여러 창이 같은 칸을 같이 써서, 예전 창의 처리기가 남지 않게 onchange/onclick 으로
+    body.onchange = (ev) => {
+      if (ev.target.name !== 'ratio' || !rect) return;
+      ratio = ev.target.value === 'free' ? null : Number(ev.target.value);
+      rect = fitRatio(rect);
+      draw();
+    };
+    let dragC = null;
+    box.addEventListener('pointerdown', (ev) => {
+      if (!rect) return;
+      ev.preventDefault();
+      const r = wrap.getBoundingClientRect();
+      dragC = { c: ev.target.closest('[data-c]')?.dataset.c || 'move', sx: ev.clientX, sy: ev.clientY, W: r.width, H: r.height, start: { ...rect }, id: ev.pointerId };
+      try { box.setPointerCapture(ev.pointerId); } catch { /* 무시 */ }
+    });
+    box.addEventListener('pointermove', (ev) => {
+      if (!dragC || ev.pointerId !== dragC.id) return;
+      const dx = (ev.clientX - dragC.sx) / dragC.W;
+      const dy = (ev.clientY - dragC.sy) / dragC.H;
+      const st = dragC.start;
+      if (dragC.c === 'move') {
+        rect = { ...st, x: clamp(st.x + dx, 0, 1 - st.w), y: clamp(st.y + dy, 0, 1 - st.h) };
+      } else {
+        const west = dragC.c.includes('w');
+        const north = dragC.c.includes('n');
+        let x = west ? clamp(st.x + dx, 0, st.x + st.w - MIN) : st.x;
+        let w = west ? st.x + st.w - x : clamp(st.w + dx, MIN, 1 - st.x);
+        let y = north ? clamp(st.y + dy, 0, st.y + st.h - MIN) : st.y;
+        let h = north ? st.y + st.h - y : clamp(st.h + dy, MIN, 1 - st.y);
+        if (ratio) { // 비율 고정: 너비를 기준으로 높이, 넘치면 높이 기준으로 너비
+          h = (w * nat.w) / (nat.h * ratio);
+          const maxH = north ? st.y + st.h : 1 - st.y;
+          if (h > maxH) { h = maxH; w = (h * nat.h * ratio) / nat.w; }
+          if (west) x = st.x + st.w - w;
+          if (north) y = st.y + st.h - h;
+        }
+        rect = { x, y, w, h };
+      }
+      draw();
+    });
+    const end = (ev) => { if (dragC && ev.pointerId === dragC.id) dragC = null; };
+    box.addEventListener('pointerup', end);
+    box.addEventListener('pointercancel', end);
+
+    body.onclick = (ev) => {
+      const a = ev.target.closest('[data-cr]')?.dataset.cr;
+      if (!a || !nat) return;
+      const full = a === 'reset' || (rect.w > 0.995 && rect.h > 0.995);
+      const crop = full ? null : { x: +rect.x.toFixed(4), y: +rect.y.toFixed(4), w: +rect.w.toFixed(4), h: +rect.h.toFixed(4) };
+      const r = full ? nat.w / nat.h : (rect.w * nat.w) / (rect.h * nat.h); // 보이는 부분의 너비/높이
+      snapshot();
+      // 보이는 부분 비율에 맞게 요소 높이를 다시 (가운데 유지, 사진이 늘어나 보이지 않게)
+      const pol = e.content.frame === 'polaroid';
+      const iw = pol ? e.width * 0.92 : e.width;
+      const newH = clamp(iw / r + (pol ? e.width * 0.2 : 0), 30, 2400);
+      e.y += (e.height - newH) / 2;
+      e.height = newH;
+      const { crop: _old, ...rest } = e.content; // eslint-disable-line no-unused-vars
+      e.content = crop ? { ...rest, crop } : rest;
+      closeSheet();
+      changedNow();
+      toast(full ? '원래 사진으로 되돌렸어요' : '사진을 잘랐어요');
     };
   }
 
@@ -1488,13 +1634,29 @@
   }
 
   function pickBg() {
+    const photos = [...photoIndex().values()];
+    const bgPhoto = ED.els.find((x) => x.content?.locked);
     const body = openSheet(`<h2>배경</h2>${BG_GROUPS.map(([g, list]) => `<h3 class="st-sec">${g}</h3>
-      <div class="bg-grid">${Object.entries(list).map(([k, l]) => `<button type="button" data-bg="${k}" class="${ED.bg === k ? 'on' : ''}" aria-pressed="${ED.bg === k}"><i class="sb-canvas bg-${k}"></i>${l}</button>`).join('')}</div>`).join('')}`);
+      <div class="bg-grid">${Object.entries(list).map(([k, l]) => `<button type="button" data-bg="${k}" class="${ED.bg === k && !bgPhoto ? 'on' : ''}" aria-pressed="${ED.bg === k}"><i class="sb-canvas bg-${k}"></i>${l}</button>`).join('')}</div>`).join('')}
+      <h3 class="st-sec">📷 여행 사진을 배경으로</h3>
+      ${bgPhoto ? '<button type="button" class="btn" data-bgph="remove" style="width:100%;margin-bottom:8px">배경 사진 빼기</button>' : ''}
+      ${photos.length ? `<div class="sb-photo-grid">${photos.map((ph) => `<button type="button" data-bgph="${ph.id}" class="${bgPhoto?.photoId === ph.id ? 'on' : ''}" aria-label="${esc(ph.placeName)} 사진을 배경으로"><img src="${esc(ph.thumb)}" alt="" loading="lazy"></button>`).join('')}</div>
+        <small class="hint">사진이 페이지 전체에 고정돼서 깔려요. 위에 올린 사진·글자·스티커는 그대로예요.</small>`
+        : '<div class="hint">이 기록장에 올린 사진이 아직 없어요</div>'}`);
     body.onclick = (ev) => {
       const b = ev.target.closest('[data-bg]');
-      if (!b) return;
+      const ph = ev.target.closest('[data-bgph]')?.dataset.bgph;
+      if (!b && !ph) return;
       snapshot();
-      ED.bg = b.dataset.bg;
+      if (b) ED.bg = b.dataset.bg;
+      else {
+        ED.els = ED.els.filter((x) => !x.content?.locked); // 배경 사진은 하나만
+        if (ph !== 'remove') {
+          const minZ = ED.els.reduce((m, x) => Math.min(m, x.zIndex), 1);
+          ED.els.push({ id: uuid(), type: 'IMAGE', x: 0, y: 0, width: CW, height: CH, rotation: 0, zIndex: minZ - 1, photoId: Number(ph), content: { frame: 'none', locked: true, alt: '배경 사진' } });
+        }
+        if (ED.sel && !selEl()) ED.sel = null;
+      }
       closeSheet();
       changedNow();
     };
