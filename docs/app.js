@@ -1385,6 +1385,43 @@ function tripStatus(t) {
 const statusBadge = (t) => { const st = tripStatus(t); return st ? `<span class="trip-status ${st.key}">${st.label}</span>` : ''; };
 
 // ---------- 내 여행 목록 (모든 탭 공통, 위쪽 🧳 버튼) ----------
+// ---------- 여행 바로가기: 여행마다 타임라인 · 기록장 · 스크랩북 ----------
+const GO_VIEWS = { timeline: ['📅', '타임라인'], journal: ['📒', '기록장'], scrap: ['📔', '스크랩북'] };
+function tripGoBar(t, current) {
+  const sub = { timeline: t.plan_count ? `일정 ${t.plan_count}` : '일정 세우기', journal: `기록 ${t.place_count}`, scrap: '꾸미기' };
+  return `<div class="trip-go" role="group" aria-label="${esc(t.title)} 보기">${Object.entries(GO_VIEWS).map(([v, [e, l]]) =>
+    `<button type="button" class="${v === current ? 'on' : ''}" data-go="${v}" data-go-trip="${t.id}"><b>${e} ${l}</b><small>${sub[v]}</small></button>`).join('')}</div>`;
+}
+/** 바로가기를 누르면: 그 여행을 고르고 그 탭으로 */
+function goTrip(id, view) {
+  state.filter = id;
+  closeSheet();
+  switchView(view);
+  refresh(true);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-go][data-go-trip]');
+  if (b) { e.preventDefault(); goTrip(Number(b.dataset.goTrip), b.dataset.go); }
+});
+/** 타임라인·스크랩북에서 여행을 아직 안 골랐을 때: 탭마다 다른 안내 + 여행 카드(바로가기 포함) */
+const PICK_INTRO = {
+  timeline: ['📅 타임라인', '여행 <b>전</b>에 쓰는 곳 — 날짜별 일정·예산·준비물을 세우고 AI 일정 도우미를 써요.'],
+  scrap: ['📔 스크랩북', '여행 <b>뒤</b>에 꾸미는 곳 — 사진과 기록으로 하루 한 장씩 앨범을 만들어요.'],
+  journal: ['📒 기록장', '다녀온 곳의 사진·한마디·이야기를 모아 봐요.'],
+};
+function tripPickerHtml(view) {
+  const [title, desc] = PICK_INTRO[view] || PICK_INTRO.timeline;
+  return `<div class="section-head"><h2>${title}</h2></div>
+    <div class="pick-intro">${desc}<br><small>아래에서 여행을 고르거나, 위쪽 선택 칸에서 골라도 돼요.</small></div>
+    ${state.trips.map((t) => `<div class="card trip-card hub" data-kind="${esc(t.kind || 'trip')}">
+      <div class="hub-top">
+        ${t.cover ? `<img class="thumb" src="${esc(t.cover)}" alt="" loading="lazy">` : `<div class="thumb">${kindIcon(t.kind)}</div>`}
+        <span class="body"><b>${esc(t.title)}</b><small>${statusBadge(t)} 📅 ${fmtRange(t.start_date, t.end_date)}</small></span>
+      </div>
+      ${tripGoBar(t, view)}
+    </div>`).join('')}`;
+}
+
 function tripsListHtml() {
   const places = state.trips.reduce((n, t) => n + t.place_count, 0);
   const friends = new Set(state.trips.flatMap((t) => t.members.map((m) => m.id)).filter((id) => id !== state.me.id));
@@ -1399,6 +1436,7 @@ function tripsListHtml() {
         </span>
       </button>
       <button type="button" class="icon-btn" data-manage="${t.id}" aria-label="${esc(t.title)} 멤버·수정">⋯</button>
+      ${tripGoBar(t, state.filter === t.id ? state.view : '')}
     </div>`).join('');
   return `<div class="section-head"><h2>내 여행</h2><button class="chip-btn" data-act="new-trip">＋ 새 여행</button></div>
     <div class="stats"><div><b>${state.trips.length}</b><small>여행</small></div>

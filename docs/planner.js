@@ -146,6 +146,7 @@
       return `<div class="empty"><div class="big">${ic('📒')}</div>먼저 여행을 만들어 주세요<br>
         <button class="chip-btn" data-act="new-trip" style="margin-top:12px">＋ 새 여행</button></div>`;
     }
+    if (typeof tripPickerHtml === 'function') return tripPickerHtml(state.view);
     return `<h2>${what} 볼 여행을 골라 주세요</h2>
       <p class="muted" style="margin-top:-6px">위쪽 선택 칸에서 골라도 돼요.</p>
       ${state.trips.map((t) => `<button class="card trip-card" data-pick-trip="${t.id}">

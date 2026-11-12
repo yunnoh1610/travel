@@ -426,3 +426,17 @@ body.read-only [data-m="edit"], body.read-only [data-m="import"] { display: none
 .card.plan-card .thumb { background: var(--accent-soft, #ece8f7); display: flex; align-items: center; justify-content: center; }
 .tl-time.plan { color: var(--accent); }
 .plan-go { flex: none; border: 1px solid var(--accent); background: var(--card); color: var(--accent); font-weight: 800; font-size: 13px; padding: 8px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+
+/* ===== 여행 바로가기 (타임라인 · 기록장 · 스크랩북) ===== */
+.trip-card { flex-wrap: wrap; }
+.trip-go { flex-basis: 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.trip-go button { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 1px; cursor: pointer; color: var(--text); }
+.trip-go button b { font-size: 13.5px; white-space: nowrap; }
+.trip-go button small { font-size: 11.5px; color: var(--muted); }
+.trip-go button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.trip-go button.on small { color: rgba(255,255,255,.85); }
+.trip-card.hub { display: block; }
+.hub-top { display: flex; gap: 12px; align-items: center; }
+.hub-top .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pick-intro { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; font-size: 14px; margin: -4px 0 14px; color: var(--text); }
+.pick-intro small { color: var(--muted); }
