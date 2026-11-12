@@ -397,8 +397,8 @@
         </div>
         <label class="field"><span>일정 이름 <small>80자</small></span><input name="title" maxlength="80" required value="${esc(it?.title || '')}" placeholder="예: 공산성 산책"></label>
         <div class="grid2">
-          <label class="field"><span>시작</span><input type="time" name="start_time" value="${hhmm(it?.start_time)}"></label>
-          <label class="field"><span>끝</span><input type="time" name="end_time" value="${hhmm(it?.end_time)}"></label>
+          <label class="field"><span>시작 시간</span><input type="time" name="start_time" value="${hhmm(it?.start_time)}"></label>
+          <label class="field"><span>종료 시간</span><input type="time" name="end_time" value="${hhmm(it?.end_time)}"></label>
         </div>
         <div class="field"><span>장소 (선택)</span>
           <div id="placeNow"></div>
@@ -451,7 +451,7 @@
       e.preventDefault();
       const start = f.start_time.value || null;
       const end = f.end_time.value || null;
-      if (start && end && end < start) return toast('끝 시간이 시작보다 빨라요. 자정을 넘기면 다음 날 일정으로 나눠 주세요');
+      if (start && end && end < start) return toast('종료 시간이 시작 시간보다 빨라요. 자정을 넘기면 다음 날 일정으로 나눠 주세요');
       const cost = f.cost.value === '' ? null : Number(f.cost.value);
       if (cost != null && (!Number.isFinite(cost) || cost < 0)) return toast('비용은 0 이상으로 입력해 주세요');
       const currency = (f.currency.value || 'KRW').trim().toUpperCase();

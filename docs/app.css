@@ -55,13 +55,19 @@ h2 { font-size: 20px; margin: 0 0 12px; }
 .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .grid2 > * { min-width: 0; }
 @media (max-width: 340px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
-/* 날짜 입력칸: 아이폰은 기본 모양이 넓고 높이가 달라서 직접 맞춤 */
-.field input[type="date"] {
-  display: block; min-width: 0; max-width: 100%; min-height: 48px;
+/* 날짜·시간 입력칸: 아이폰은 기본 모양이 넓어서 화면 밖으로 나가므로 칸 너비에 맞춤 */
+.field input[type="date"], .field input[type="time"], .bulk-plan input[type="time"] {
+  display: block; width: 100%; min-width: 0; max-width: 100%; min-height: 48px;
   -webkit-appearance: none; appearance: none; text-align: left;
 }
-.field input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
-.field input[type="date"]::-webkit-calendar-picker-indicator { margin-left: 2px; }
+.field input[type="date"]::-webkit-date-and-time-value, .field input[type="time"]::-webkit-date-and-time-value,
+.bulk-plan input[type="time"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+.field input[type="date"]::-webkit-calendar-picker-indicator,
+.field input[type="time"]::-webkit-calendar-picker-indicator { margin-left: 2px; }
+/* 한 손가락으로 끌어도 화면·창이 옆으로 밀리지 않게 (사진 줄·날짜 칩처럼 가로로 넘기는 곳은 그대로) */
+html, body { overflow-x: hidden; }
+.scroll, .sheet-body { overflow-x: hidden; }
+.field, .grid2, form { min-width: 0; max-width: 100%; }
 .primary {
   width: 100%; padding: 14px; border: 0; border-radius: var(--radius); background: var(--accent); color: #fff;
   font-weight: 700; font-size: 16px;
