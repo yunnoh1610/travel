@@ -121,16 +121,17 @@
     if (!show) return;
     const t = trip();
     if (!t) { root.innerHTML = '<div class="empty">기록장을 찾을 수 없어요</div>'; return; }
-    const head = `<div class="plan-nav">
-        <button type="button" class="link" data-act="back">← 전체 기록장</button>
-        <button type="button" class="chip-btn" data-act="members">👥 멤버·초대</button>
-      </div>
-      <div class="plan-head">
-        <h2>${kindIcon(t.kind)} ${esc(t.title)}</h2>
-        <small class="muted">📅 ${fmtRange(t.start_date, t.end_date)} · 👥 ${t.members.length}명</small>
+    const head = `<div class="plan-top">
+        <button type="button" class="icon-btn ghost" data-act="back" aria-label="전체 기록장으로">←</button>
+        <div class="plan-title">
+          <h2>${kindIcon(t.kind)} ${esc(t.title)}</h2>
+          <small>${fmtRange(t.start_date, t.end_date)} · ${t.members.length}명</small>
+        </div>
+        <button type="button" class="icon-btn ghost" data-act="members" aria-label="멤버·초대">👥</button>
+        <button type="button" class="icon-btn ghost" data-act="more" aria-label="더보기" aria-haspopup="dialog">⋯</button>
       </div>
       <div class="seg plan-seg" role="tablist">
-        ${[['days', '일자별 일정'], ['budget', '예산'], ['check', '준비물']].map(([k, label]) =>
+        ${[['days', '일정'], ['budget', '예산'], ['check', '준비물']].map(([k, label]) =>
           `<button type="button" role="tab" aria-selected="${P.tab === k}" class="${P.tab === k ? 'on' : ''}" data-tab="${k}">${label}</button>`).join('')}
       </div>
       ${navigator.onLine ? '' : '<div class="notice warn">오프라인이에요. 연결되면 다시 불러와 주세요.</div>'}`;
@@ -177,35 +178,25 @@
     }
     const list = dayItems(P.day);
     const unknownCost = list.filter((i) => PLACE_TYPES.includes(i.item_type) && i.cost_estimate == null).length;
-    const actions = P.items.length ? `
-      <div class="plan-actions">
-        <button class="primary ai-btn" data-act="ai-generate">✨ AI 일정 만들기</button>
-        <div class="btn-row" style="margin-top:8px">
-          <button class="btn" data-act="add-item">＋ 일정 추가</button>
-          <button class="btn" data-act="ai-add">✨ AI로 일정 추가</button>
-          <button class="btn" data-act="ai-revise">🪄 AI에게 수정 요청</button>
-        </div>
-        <button type="button" class="link" data-act="import">📥 다른 기록장 일정 불러오기</button>
-      </div>` : `
-      <div class="start-card">
-        <b>이 기록장의 일정을 만들어 볼까요?</b>
-        <small class="muted">여기서 만든 일정은 기록장 타임라인에도 바로 보여요.</small>
-        <div class="choice-list">
-          <button class="choice" data-act="ai-generate"><span class="ic">✨</span><span><b>AI로 일정 만들기</b><small>여행지·이동 수단·취향을 알려 주면 날짜별 초안을 만들어요</small></span></button>
-          <button class="choice" data-act="add-item"><span class="ic">＋</span><span><b>직접 일정 추가</b><small>시간·장소·예상 비용을 직접 적어요</small></span></button>
-          <button class="choice" data-act="import"><span class="ic">📥</span><span><b>다른 기록장 일정 불러오기</b><small>예전에 만든 여행 계획을 이 기록장 날짜에 맞춰 복사해요</small></span></button>
-        </div>
+    // 일정 추가(주 동작) + AI 일정 도우미(만들기·추가·수정 요청을 한곳에)
+    const actions = `<div class="plan-actions">
+        <button type="button" class="btn-main" data-act="add-item">＋ 일정 추가</button>
+        <button type="button" class="btn-sub" data-act="ai-helper">✨ AI 일정 도우미</button>
       </div>`;
-    return `${actions}
+    return `
       <div class="day-chips" role="tablist" aria-label="날짜">
-        ${days.map((d, i) => `<button type="button" role="tab" aria-selected="${d === P.day}" class="day-chip ${d === P.day ? 'on' : ''}" data-day="${d}">
-          <b>${i + 1}일차</b><small>${short(d)} (${wday(d)})</small>${P.items.some((x) => x.day_date === d) ? '<i class="dot"></i>' : ''}</button>`).join('')}
+        ${days.map((d, i) => `<button type="button" role="tab" aria-selected="${d === P.day}" class="day-chip ${d === P.day ? 'on' : ''}" data-day="${d}" aria-label="${i + 1}일차 ${fmtDate(d)}">
+          <b>${i + 1}일차</b><small>${short(d)} ${wday(d)}</small>${P.items.some((x) => x.day_date === d) ? '<i class="dot" aria-hidden="true"></i>' : ''}</button>`).join('')}
       </div>
-      <h3 class="tl-date">${fmtDate(P.day)}</h3>
-      ${list.some((i) => i.lat != null) ? '<div id="planMap" class="mini-map plan-map" aria-label="이날 일정 지도"></div>' : ''}
-      ${list.length ? `<ol class="plan-list">${list.map((it, idx) => itemHtml(it, idx, list.length)).join('')}</ol>`
-        : `<div class="empty small">이날 일정이 아직 없어요.<br><small>‘일정 추가’로 직접 넣거나 AI에게 만들어 달라고 해 보세요.</small></div>`}
-      ${unknownCost ? `<small class="hint">💡 예상 비용이 없는 일정 ${unknownCost}개는 예산 합계에서 빠져요 (금액 미확인).</small>` : ''}`;
+      <div class="day-head"><h3>${fmtDate(P.day)}</h3>${list.length ? `<small>일정 ${list.length}개</small>` : ''}</div>
+      ${list.length ? `${actions}
+        ${list.some((i) => i.lat != null) ? '<div id="planMap" class="mini-map plan-map" aria-label="이날 일정 지도"></div>' : ''}
+        <ol class="plan-list">${list.map((it, idx) => itemHtml(it, idx, list.length)).join('')}</ol>
+        ${unknownCost ? `<small class="hint">💡 예상 비용이 없는 일정 ${unknownCost}개는 예산 합계에서 빠져요 (금액 미확인).</small>` : ''}`
+      : `<div class="day-empty">
+          <p>이날 일정이 아직 없어요</p>
+          ${actions}
+        </div>`}`;
   }
 
   function vBadge(it) {
@@ -357,6 +348,8 @@
       else if (act === 'ai-revise') openRevise();
       else if (act === 'ai-add') openAiAdd();
       else if (act === 'import') openImport();
+      else if (act === 'ai-helper') openAiHelper();
+      else if (act === 'more') openMore();
       else if (act === 'add-expense') openExpenseForm(null);
       else if (act === 'ck-defaults') addDefaultChecks();
     });
@@ -756,6 +749,42 @@
     out.onclick = async (e) => {
       if (e.target.id === 'revCancel') { await discard(res.draftId); closeSheet(); toast('적용하지 않았어요. 일정은 그대로예요'); }
       if (e.target.id === 'revApply') await applyDraft(res, [...chosen], btn, '수정 제안을 적용했어요');
+    };
+  }
+
+  // ---------- AI 일정 도우미: 만들기 · 추가 · 수정 요청을 한 창에서 고르기 ----------
+  function openAiHelper() {
+    const has = P.items.length > 0;
+    const days = tripDays(trip());
+    const dayLabel = P.day ? `${days.indexOf(P.day) + 1}일차 ${short(P.day)} (${wday(P.day)})` : '';
+    const body = openSheet(`<h2>✨ AI 일정 도우미</h2>
+      <p class="muted" style="margin-top:-6px">AI가 만든 내용은 바로 저장되지 않아요. 미리 보고 고른 것만 반영해요.</p>
+      <div class="choice-list">
+        <button class="choice" data-h="generate"><span class="ic">🗓️</span><span><b>전체 일정 만들기</b><small>여행지·이동 수단·취향으로 날짜별 초안을 만들어요${has ? '. 지금 일정은 그대로 두고 더해요' : ''}</small></span></button>
+        <button class="choice" data-h="add"><span class="ic">＋</span><span><b>일정 추가 추천</b><small>${esc(dayLabel)} 빈 시간에, 지금 동선에서 가까운 곳으로 추천해요</small></span></button>
+        <button class="choice" data-h="revise" ${has ? '' : 'disabled'}><span class="ic">🪄</span><span><b>일정 수정 요청</b><small>${has ? '바뀌는 내용을 전후로 비교하고 고른 것만 적용해요' : '일정이 생기면 쓸 수 있어요'}</small></span></button>
+      </div>`);
+    body.onclick = (e) => {
+      const h = e.target.closest('[data-h]:not([disabled])')?.dataset.h;
+      if (h === 'generate') openGenerate();
+      else if (h === 'add') openAiAdd();
+      else if (h === 'revise') openRevise();
+    };
+  }
+
+  // ---------- 더보기: 멤버·초대 / 기록장 정보 수정 / 다른 기록장 일정 불러오기 ----------
+  function openMore() {
+    const body = openSheet(`<h2>더보기</h2>
+      <div class="choice-list">
+        <button class="choice" data-m="members"><span class="ic">👥</span><span><b>멤버·초대</b><small>초대 링크 보내기, 멤버 관리, 기록장 나가기·삭제</small></span></button>
+        <button class="choice" data-m="edit"><span class="ic">✏️</span><span><b>기록장 정보 수정</b><small>이름·종류·날짜</small></span></button>
+        <button class="choice" data-m="import"><span class="ic">📥</span><span><b>다른 기록장 일정 불러오기</b><small>예전 여행 계획을 이 기록장 날짜에 맞춰 복사해요</small></span></button>
+      </div>`);
+    body.onclick = (e) => {
+      const m = e.target.closest('[data-m]')?.dataset.m;
+      if (m === 'members') openTrip(P.tripId);
+      else if (m === 'edit') openTripForm(trip());
+      else if (m === 'import') openImport();
     };
   }
 
