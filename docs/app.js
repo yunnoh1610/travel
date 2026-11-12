@@ -1065,6 +1065,10 @@ async function enterApp(user) {
   try { const r = await sb.from('trip_members').select('role').limit(1); state.v010 = !r.error; } catch { state.v010 = false; }
   // DB 설정 011(일정 사이 이동 방법)이 있는지
   try { const r = await sb.from('itinerary_items').select('transit').limit(1); state.v011 = !r.error; } catch { state.v011 = false; }
+  // DB 설정 013(대중교통 단계별 안내)이 있는지: 이동 정보 정리 함수가 steps 를 돌려주면 있음
+  if (state.v011) {
+    try { const r = await sb.rpc('transit_of', { it: { transit: { mode: 'BUS', steps: ['확인'] } } }); state.v013 = !r.error && Array.isArray(r.data?.steps); } catch { state.v013 = false; }
+  }
   // 계정에 저장된 테마가 있으면 이 기기에도 적용 (다른 기기에서 바꾼 테마 따라가기)
   const savedTheme = user.user_metadata?.theme;
   if (savedTheme && usableTheme(savedTheme) && savedTheme !== currentTheme) applyTheme(savedTheme);

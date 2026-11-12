@@ -14,6 +14,8 @@ export const LIMITS = {
   notes: 500,
   reason: 80,
   transitDetail: 80,
+  transitStep: 60,
+  transitSteps: 4,
   placeQuery: 80,
   instruction: 300,
   listItem: 40,
@@ -49,7 +51,9 @@ export interface DraftItem {
 }
 
 export const TRANSIT_MODES = ['WALK', 'BUS', 'SUBWAY', 'TRAIN', 'TAXI', 'CAR', 'BIKE', 'FERRY', 'FLIGHT'] as const;
-export interface Transit { mode: typeof TRANSIT_MODES[number]; minutes: number | null; detail: string | null }
+export interface Transit { mode: typeof TRANSIT_MODES[number]; minutes: number | null; detail: string | null; steps: string[] }
+/** 단계별 안내를 쓰는 수단 (대중교통) */
+export const STEP_MODES = ['BUS', 'SUBWAY', 'TRAIN', 'FERRY'];
 /** AI가 준 이동 정보를 정리 (모르는 수단·NONE 이면 null, 시간은 1~1440분) */
 export function normTransit(raw: unknown): Transit | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -58,7 +62,9 @@ export function normTransit(raw: unknown): Transit | null {
   if (!(TRANSIT_MODES as readonly string[]).includes(mode)) return null;
   const m = Number(r.minutes);
   const minutes = r.minutes != null && Number.isFinite(m) && m >= 1 && m <= 1440 ? Math.round(m) : null;
-  return { mode: mode as Transit['mode'], minutes, detail: cleanText(r.detail, LIMITS.transitDetail) };
+  const steps = STEP_MODES.includes(mode) && Array.isArray(r.steps)
+    ? r.steps.map((x) => cleanText(x, LIMITS.transitStep)).filter(Boolean).slice(0, LIMITS.transitSteps) as string[] : [];
+  return { mode: mode as Transit['mode'], minutes, detail: cleanText(r.detail, LIMITS.transitDetail), steps };
 }
 
 export interface GenerateInput {
@@ -233,6 +239,10 @@ export const SYSTEM_PROMPT = `너는 한국어 여행 일정 플래너다. 제�
 - transit 에는 바로 앞 일정에서 이 일정까지 가는 방법을 쓴다 (하루 첫 일정은 숙소나 출발지에서 오는 방법). 사용자가 고른 교통수단을 우선하되 가까우면 WALK.
   mode 는 WALK·BUS·SUBWAY·TRAIN·TAXI·CAR·BIKE·FERRY·FLIGHT 중 하나, 이동이 필요 없거나 모르면 NONE. minutes 는 대략적인 소요 분(모르면 null).
   detail 에는 40자 이내로 어디서 무엇을 타는지 쓴다 (예: "공주종합버스터미널에서 시내버스", "공산성 정문까지 걸어서"). 버스 번호·요금·배차처럼 확실하지 않은 정보는 쓰지 않는다.
+  steps 는 mode 가 BUS·SUBWAY·TRAIN·FERRY 일 때만 순서대로 최대 4단계로 쓴다 (그 밖에는 빈 배열):
+  ① 어디서 타는지 (정류장·역 이름, 예: "공주종합버스터미널 앞 정류장에서 탑승") ② 무엇을 타는지 (예: "공산성 방면 시내버스", "지하철 2호선 잠실 방면")
+  ③ 어디서 내리는지 (예: "공산성 정류장에서 하차") ④ 내려서 가는 길 (예: "길 건너 매표소까지 걸어서 3분").
+  확실하지 않은 노선 번호·시간표·요금은 쓰지 않는다 (앱의 길찾기 버튼으로 확인하게 해요). 교통카드 같은 짧은 팁은 detail 에 쓴다.
   일정 사이 이동 시간을 고려해 시작 시간을 정한다. 도시 간 긴 이동(예: 서울→공주)은 따로 MOVE 일정으로 만든다.`;
 
 function dataBlock(obj: unknown): string {
@@ -336,12 +346,13 @@ const ITEM_SCHEMA = {
     transit: {
       type: 'object',
       additionalProperties: false,
-      required: ['mode', 'minutes', 'detail'],
+      required: ['mode', 'minutes', 'detail', 'steps'],
       description: '바로 앞 일정(하루 첫 일정은 숙소·출발지)에서 여기까지 가는 방법',
       properties: {
         mode: { type: 'string', enum: [...TRANSIT_MODES, 'NONE'] },
         minutes: { type: ['integer', 'null'], description: '대략적인 소요 분, 모르면 null' },
         detail: { type: 'string', description: '어디서 무엇을 타는지 (40자 이내), 없으면 빈 문자열' },
+        steps: { type: 'array', items: { type: 'string' }, description: '대중교통일 때 타는 방법 단계 (최대 4개, 각 40자 이내), 아니면 빈 배열' },
       },
     },
   },

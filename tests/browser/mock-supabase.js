@@ -204,6 +204,8 @@
   // ---------- RPC (SQL 함수를 단순화해서 흉내) ----------
   const rpcs = {
     ping: () => 'ok',
+    // DB 설정 013 확인용 (?no013 이면 단계 없이)
+    transit_of: ({ it }) => (/no013/.test(location.search) ? { mode: it.transit.mode } : { mode: it.transit.mode, steps: it.transit.steps || [] }),
     create_invite: ({ p_trip_id, p_role }) => [{ token: `tok-${p_trip_id}-${p_role || 'EDITOR'}`, expires_at: new Date(Date.now() + 7 * 864e5).toISOString(), ...(window.MOCK.no010 ? {} : { role: p_role || 'VIEWER' }) }],
     add_member_by_username: ({ p_trip_id, p_username, p_role }) => {
       const p = db.profiles.find((x) => x.username === p_username);
@@ -297,7 +299,7 @@
     const it = (tmp, date, type, title, s, e, pq, ver, cost, notes, ll) => ({ temporaryId: tmp, date, type, title, startTime: s, endTime: e, placeQuery: pq,
       placeName: pq, address: ver ? '충남 공주시' : null, lat: ver ? ll[0] : null, lng: ver ? ll[1] : null, matchedPlaceId: ver ? 'kakao:1' : null,
       verificationStatus: ver ? 'VERIFIED' : 'UNVERIFIED', estimatedCost: cost, currency: 'KRW', notes, reason: ver ? '동선이 가깝고 평이 좋아요' : '',
-      transit: type === 'REST' ? null : type === 'MEAL' ? { mode: 'WALK', minutes: 10, detail: '성곽길 따라 내려가서' } : { mode: 'BUS', minutes: 20, detail: '공주종합버스터미널에서 시내버스' } });
+      transit: type === 'REST' ? null : type === 'MEAL' ? { mode: 'WALK', minutes: 10, detail: '성곽길 따라 내려가서' } : { mode: 'BUS', minutes: 20, detail: '교통카드 사용 가능', steps: ['공주종합버스터미널 앞 정류장에서 탑승', '공산성 방면 시내버스', '공산성 정류장에서 하차', '길 건너 매표소까지 걸어서 3분'] } });
     const days = [
       { date: t.start_date, items: [
         it('tmp-1', t.start_date, 'PLACE', '공산성 성곽길 산책', '11:00', '12:30', '공산성', true, 1200, '성곽 위 전망 좋음', [36.4646, 127.1265]),

@@ -178,13 +178,37 @@
     ? `${TRANSIT[t.mode][0]} ${TRANSIT[t.mode][1]}${t.minutes ? ` 약 ${t.minutes}분` : ''}${t.detail ? ` · ${esc(t.detail)}` : ''}` : '');
   const kmText = (m) => (m < 1000 ? `${Math.round(m / 10) * 10}m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)}km`);
   /** 일정 사이 줄: 이동 방법(AI 추정 또는 직접 적은 것) + 앞 장소와의 직선거리 */
+  const STEP_MODES = ['BUS', 'SUBWAY', 'TRAIN', 'FERRY'];
+  /**
+   * 지도 앱 길찾기 주소: 한국은 카카오맵, 해외는 구글 지도 (앞 일정 → 이번 일정, 앞 일정 위치가 없으면 도착지만)
+   * 실제 노선 번호·정류장·환승·실시간 도착은 지도 앱이 보여 줘요
+   */
+  function routeUrl(prev, it) {
+    const mode = it.transit?.mode;
+    const name = (x) => String(x.place_name || x.title || '').replace(/[,/]/g, ' ').trim().slice(0, 40) || '목적지';
+    const from = prev && prev.lat != null ? prev : null;
+    if (isKorea(it.lat, it.lng)) {
+      const km = { WALK: 'walk', CAR: 'car', TAXI: 'car', BIKE: 'bicycle' }[mode] || 'traffic';
+      const pt = (x) => `${encodeURIComponent(name(x))},${x.lat},${x.lng}`;
+      return from ? `https://map.kakao.com/link/by/${km}/${pt(from)}/${pt(it)}` : `https://map.kakao.com/link/to/${pt(it)}`;
+    }
+    const gm = { WALK: 'walking', CAR: 'driving', TAXI: 'driving', BIKE: 'bicycling' }[mode] || 'transit';
+    return `https://www.google.com/maps/dir/?api=1${from ? `&origin=${from.lat},${from.lng}` : ''}&destination=${it.lat},${it.lng}&travelmode=${gm}`;
+  }
   function moveRow(prev, it) {
     const dist = prev && prev.lat != null && it.lat != null ? distM(prev, it) : null;
     if (!it.transit && dist == null) return '';
     const ai = it.transit && it.source === 'AI' && !it.user_edited;
+    const steps = it.transit?.steps || [];
+    const transitMode = STEP_MODES.includes(it.transit?.mode);
     return `<li class="pi-move" aria-label="이동">
-      ${it.transit ? `<span>${transitText(it.transit)}</span>${ai ? '<small class="muted">AI 추정</small>' : ''}` : '<span class="muted">이동 방법 미정</span>'}
-      ${dist != null && dist > 30 ? `<small class="muted">📏 직선 ${kmText(dist)}</small>` : ''}
+      <div class="pi-move-head">
+        ${it.transit ? `<span>${transitText(it.transit)}</span>${ai ? '<small class="muted">AI 추정</small>' : ''}` : '<span class="muted">이동 방법 미정</span>'}
+        ${dist != null && dist > 30 ? `<small class="muted">📏 직선 ${kmText(dist)}</small>` : ''}
+        ${it.lat != null ? `<a class="route-btn" href="${esc(routeUrl(prev, it))}" target="_blank" rel="noopener noreferrer" aria-label="${esc(it.title)}까지 지도 앱 길찾기">🗺️ 길찾기</a>` : ''}
+      </div>
+      ${steps.length ? `<ol class="pi-steps">${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+      ${transitMode && it.lat != null ? '<small class="muted pi-steps-note">버스·지하철 번호와 시간은 🗺️ 길찾기에서 확인해요</small>' : ''}
     </li>`;
   }
   function planListHtml(list) {
@@ -575,7 +599,8 @@
             <select name="t_mode" aria-label="이동 수단"><option value="">정하지 않음</option>${Object.entries(TRANSIT).map(([k, [e, l]]) => `<option value="${k}" ${it?.transit?.mode === k ? 'selected' : ''}>${e} ${l}</option>`).join('')}</select>
             <input type="number" name="t_min" min="1" max="1440" inputmode="numeric" placeholder="걸리는 시간(분)" value="${it?.transit?.minutes ?? ''}" aria-label="걸리는 시간(분)">
           </div>
-          <input name="t_detail" maxlength="80" placeholder="예: 공주종합버스터미널에서 시내버스" value="${esc(it?.transit?.detail || '')}" style="margin-top:6px" aria-label="이동 설명"></div>` : ''}
+          <input name="t_detail" maxlength="80" placeholder="예: 공주종합버스터미널에서 시내버스" value="${esc(it?.transit?.detail || '')}" style="margin-top:6px" aria-label="이동 설명">
+          ${state.v013 ? `<textarea name="t_steps" rows="3" maxlength="260" placeholder="대중교통 타는 방법 (한 줄에 하나, 4줄까지)&#10;예: 터미널 앞 정류장에서 탑승&#10;공산성 방면 시내버스 → 공산성 정류장 하차" style="margin-top:6px" aria-label="대중교통 타는 방법">${esc((it?.transit?.steps || []).join('\n'))}</textarea>` : ''}</div>` : ''}
         <label class="field"><span>메모</span><textarea name="notes" maxlength="500" rows="2">${esc(it?.notes || '')}</textarea></label>
         ${showWho ? `<div class="field"><span>함께 가는 사람 <small>안 고르면 모두 함께</small></span><div class="who-pick">
           ${members.map((m) => `<label class="chk"><input type="checkbox" name="who" value="${m.id}" ${it?.assignees?.includes(m.id) ? 'checked' : ''}><span>${esc(m.name)}</span></label>`).join('')}</div></div>` : ''}
@@ -655,6 +680,10 @@
         const mode = f.t_mode.value;
         const mins = Number(f.t_min.value);
         row.transit = mode ? { mode, minutes: Number.isInteger(mins) && mins >= 1 && mins <= 1440 ? mins : null, detail: f.t_detail.value.trim() || null } : null;
+        if (row.transit && state.v013) {
+          row.transit.steps = STEP_MODES.includes(mode) && f.t_steps
+            ? f.t_steps.value.split('\n').map((x) => x.trim().slice(0, 60)).filter(Boolean).slice(0, 4) : [];
+        }
       }
       if (state.v008) {
         if (f.status) row.status = f.status.value;
@@ -1042,6 +1071,7 @@
               ${PLACE_TYPES.includes(it.type) && it.placeQuery ? (it.verificationStatus === 'VERIFIED' ? '<span class="vbadge ok">✓ 장소 확인</span>' : '<span class="vbadge warn">⚠ 미확인 장소</span>') : ''}
               ${it.estimatedCost != null ? `<span>💰 약 ${money(it.estimatedCost, it.currency)} (AI 추정)</span>` : ''}
               ${it.transit ? `<span class="pv-move">${transitText(it.transit)}</span>` : ''}
+              ${it.transit?.steps?.length ? `<span class="pv-steps">${it.transit.steps.map(esc).join(' → ')}</span>` : ''}
             </span>
             ${it.notes ? `<span class="pi-notes">${esc(it.notes)}</span>` : ''}
             ${it.reason ? `<span class="pi-reason">💬 ${esc(it.reason)}</span>` : ''}</span>
@@ -1366,6 +1396,7 @@
               ${o.distanceKm != null ? `<span>📏 지금 동선에서 약 ${o.distanceKm}km</span>${o.distanceKm > 10 ? '<span class="vbadge warn">동선에서 멀어요</span>' : ''}` : ''}
               ${it.estimatedCost != null ? `<span>💰 약 ${money(it.estimatedCost, it.currency)} (AI 추정)</span>` : ''}
               ${it.transit ? `<span class="pv-move">${transitText(it.transit)}</span>` : ''}
+              ${it.transit?.steps?.length ? `<span class="pv-steps">${it.transit.steps.map(esc).join(' → ')}</span>` : ''}
               ${o.conflict ? '<span class="vbadge warn">⚠ 지금 일정과 시간이 겹쳐요</span>' : ''}
             </span>
             ${o.reason || it.reason ? `<span class="pi-reason">💬 ${esc(o.reason || it.reason)}</span>` : ''}</span>

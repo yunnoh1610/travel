@@ -68,6 +68,8 @@ before(async () => {
   await db.exec(sql('migrate-011-transit.sql'));
   await db.exec(sql('migrate-012-reorder-times.sql'));
   await db.exec(sql('migrate-012-reorder-times.sql'));
+  await db.exec(sql('migrate-013-transit-steps.sql'));
+  await db.exec(sql('migrate-013-transit-steps.sql'));
 
   for (const [id, name] of [[A, 'aa'], [B, 'bb'], [C, 'cc']]) {
     await db.query("insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, jsonb_build_object('name', $3::text))",
@@ -435,7 +437,7 @@ test('011: 일정 사이 이동 방법 — AI 초안에서 저장, 모르는 수
   await rows(A, 'select * from apply_ai_draft($1, $2, $3)', [d.id, ['t1', 't2', 't3'], d.rev]);
   const got = await rows(A, "select title, transit from itinerary_items where ai_draft_id = $1 order by sort_order", [d.id]);
   assert.deepEqual(got.map((x) => x.transit), [
-    { mode: 'BUS', minutes: 15, detail: '공주종합버스터미널에서 시내버스' }, null, { mode: 'WALK', minutes: null, detail: null }]);
+    { mode: 'BUS', minutes: 15, detail: '공주종합버스터미널에서 시내버스', steps: [] }, null, { mode: 'WALK', minutes: null, detail: null, steps: [] }]);
   // 멤버가 직접 고치기, 이상한 값은 거부
   const id = (await rows(B, "update itinerary_items set transit = '{\"mode\":\"TAXI\",\"minutes\":7}' where ai_draft_id = $1 and title = '국밥' returning id", [d.id]))[0].id;
   assert.ok(id);
@@ -471,6 +473,23 @@ test('012: 드래그 — 순서와 시간을 한 번에, 실패하면 아무것�
   await fails(A, 'select reorder_itinerary_times($1, $2, $3, $4, $5)', [trip, day, [a, b, c], ['11:00'], ['11:10']], /맞지 않아요/);
 });
 
+test('013: 대중교통 단계 — 대중교통만, 4줄까지, 빈 줄 빼고, 60자', async () => {
+  const d = await makeDraft('GENERATE', { days: [{ date: '2026-11-22', items: [
+    { temporaryId: 's1', date: '2026-11-22', type: 'PLACE', title: '단계 버스', startTime: '10:00', verificationStatus: 'UNVERIFIED', currency: 'KRW',
+      transit: { mode: 'BUS', minutes: 20, detail: '교통카드', steps: ['터미널 앞 정류장에서 탑승', ' ', '공산성 방면 시내버스', '공산성 정류장 하차', '매표소까지 3분', '다섯째', '가'.repeat(80)] } },
+    { temporaryId: 's2', date: '2026-11-22', type: 'PLACE', title: '단계 걷기', startTime: '12:00', verificationStatus: 'UNVERIFIED', currency: 'KRW',
+      transit: { mode: 'WALK', minutes: 5, detail: '', steps: ['걷기'] } },
+  ] }] });
+  await rows(A, 'select * from apply_ai_draft($1, $2, $3)', [d.id, ['s1', 's2'], d.rev]);
+  const got = await rows(A, 'select title, transit from itinerary_items where ai_draft_id = $1 order by sort_order', [d.id]);
+  assert.deepEqual(got[0].transit.steps, ['터미널 앞 정류장에서 탑승', '공산성 방면 시내버스', '공산성 정류장 하차', '매표소까지 3분']);
+  assert.deepEqual(got[1].transit.steps, []);
+  // 직접 고치기: 5줄은 거부
+  const id = (await rows(A, 'select id from itinerary_items where ai_draft_id = $1 limit 1', [d.id]))[0].id;
+  await fails(B, "update itinerary_items set transit = '{\"mode\":\"BUS\",\"steps\":[\"1\",\"2\",\"3\",\"4\",\"5\"]}' where id = $1", [id], /itinerary_transit_check/);
+  assert.ok((await rows(B, "update itinerary_items set transit = '{\"mode\":\"SUBWAY\",\"minutes\":30,\"steps\":[\"강남역에서 2호선\"]}' where id = $1 returning id", [id])).length);
+});
+
 test('멤버가 나가면 새 자료도 못 봄 (TC-15)', async () => {
   assert.ok((await rows(B, 'select id from itinerary_items where trip_id = $1', [trip])).length > 0);
   await rows(B, 'delete from trip_members where trip_id = $1 and user_id = $2', [trip, B]);
@@ -492,7 +511,7 @@ test('되돌리기 SQL 이 기존 테이블을 남기고 새 테이블만 지움
   await x.exec(SUPABASE_STUB);
   for (const f of ['schema.sql', 'migrate-002-username.sql', 'migrate-003-memories.sql', 'migrate-004-planner-scrapbook.sql',
     'migrate-005-record-time-plan-link.sql', 'migrate-006-scrapbook-design.sql', 'migrate-007-trip-info.sql', 'migrate-008-plan-status.sql',
-    'migrate-009-journal-scrapbooks.sql', 'migrate-010-roles.sql', 'migrate-011-transit.sql', 'migrate-012-reorder-times.sql', 'rollback-012-reorder-times.sql', 'rollback-011-transit.sql', 'rollback-010-roles.sql', 'rollback-009-journal-scrapbooks.sql', 'rollback-008-plan-status.sql', 'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
+    'migrate-009-journal-scrapbooks.sql', 'migrate-010-roles.sql', 'migrate-011-transit.sql', 'migrate-012-reorder-times.sql', 'migrate-013-transit-steps.sql', 'rollback-013-transit-steps.sql', 'rollback-012-reorder-times.sql', 'rollback-011-transit.sql', 'rollback-010-roles.sql', 'rollback-009-journal-scrapbooks.sql', 'rollback-008-plan-status.sql', 'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
     'rollback-005-record-time-plan-link.sql', 'rollback-004-planner-scrapbook.sql']) {
     await x.exec(sql(f));
   }

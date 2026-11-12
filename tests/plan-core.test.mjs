@@ -263,17 +263,17 @@ import { normTransit, TRANSIT_MODES } from '../supabase/functions/_shared/plan-c
 test('이동 방법: 스키마에 있고, 정리해서 남기고, 모르면 null', () => {
   const props = GENERATE_SCHEMA.properties.days.items.properties.items.items;
   assert.ok(props.required.includes('transit'));
-  assert.deepEqual(props.properties.transit.required, ['mode', 'minutes', 'detail']);
+  assert.deepEqual(props.properties.transit.required, ['mode', 'minutes', 'detail', 'steps']);
   assert.equal(props.properties.transit.additionalProperties, false);
   assert.ok(props.properties.transit.properties.mode.enum.includes('NONE'));
-  assert.deepEqual(normTransit({ mode: 'bus', minutes: 14.6, detail: '  공주종합버스터미널에서 시내버스 ' }), { mode: 'BUS', minutes: 15, detail: '공주종합버스터미널에서 시내버스' });
+  assert.deepEqual(normTransit({ mode: 'bus', minutes: 14.6, detail: '  공주종합버스터미널에서 시내버스 ' }), { mode: 'BUS', minutes: 15, detail: '공주종합버스터미널에서 시내버스', steps: [] });
   assert.equal(normTransit({ mode: 'NONE', minutes: null, detail: '' }), null);
   assert.equal(normTransit({ mode: 'ROCKET', minutes: 5, detail: 'x' }), null);
   assert.equal(normTransit({ mode: 'WALK', minutes: 99999, detail: '' }).minutes, null);
   assert.equal(normTransit(null), null);
   assert.ok(TRANSIT_MODES.includes('SUBWAY'));
   const r = normalizeGenerated({ days: [{ date: '2026-11-21', items: [item({ transit: { mode: 'WALK', minutes: 10, detail: '성곽길 따라' } })] }], warnings: [] }, range);
-  assert.deepEqual(r.days[0].items[0].transit, { mode: 'WALK', minutes: 10, detail: '성곽길 따라' });
+  assert.deepEqual(r.days[0].items[0].transit, { mode: 'WALK', minutes: 10, detail: '성곽길 따라', steps: [] });
 });
 
 test('일기: 사진 수·빈 칸은 AI에게 보내지 않음 (없는 걸 "없었다"고 쓰지 않게)', () => {
@@ -291,4 +291,13 @@ test('일기: 사실("기록")과 맥락("참고")을 나눠 보내고, 날짜�
   const json = JSON.parse(p.slice(p.indexOf('<data>') + 6, p.indexOf('</data>')));
   assert.deepEqual(json.기록, { 장소: '공산성', 날짜: '11월 1일', 한줄코멘트: '성곽길 산책' });
   assert.deepEqual(json.참고, { 여행이름: '공주 여행', 태그: ['산책'], 장소종류: '관광' });
+});
+
+test('이동 방법: 대중교통 단계별 안내(steps) — 대중교통만, 4개까지, 빈 줄 빼기', () => {
+  const props = GENERATE_SCHEMA.properties.days.items.properties.items.items.properties.transit;
+  assert.ok(props.required.includes('steps'));
+  const bus = normTransit({ mode: 'BUS', minutes: 20, detail: '교통카드 가능', steps: ['터미널 앞 정류장에서 탑승', ' ', '공산성 방면 시내버스', '공산성 정류장 하차', '매표소까지 걸어서 3분', '다섯째'] });
+  assert.deepEqual(bus.steps, ['터미널 앞 정류장에서 탑승', '공산성 방면 시내버스', '공산성 정류장 하차', '매표소까지 걸어서 3분']);
+  assert.deepEqual(normTransit({ mode: 'WALK', minutes: 5, detail: '', steps: ['걷기'] }).steps, [], '걸어서는 단계 없음');
+  assert.equal(normTransit({ mode: 'SUBWAY', minutes: 30, detail: '', steps: ['가'.repeat(100)] }).steps[0].length, 60);
 });

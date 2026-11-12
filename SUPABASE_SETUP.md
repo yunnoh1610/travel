@@ -77,7 +77,11 @@ SQL Editor에서 `supabase\migrate-011-transit.sql` 을 한 번 실행해요. (�
 SQL Editor에서 `supabase\migrate-012-reorder-times.sql` 을 한 번 실행해요. (결과: **✔ 타임라인 순서·시간 저장 설정 완료**)
 일정 카드를 끌어 순서를 바꿀 때 새 순서와 다시 계산한 시간을 한 번에 저장해요 (중간에 실패하면 아무것도 안 바뀜). 테이블은 그대로이고 함수만 더해요. 실행 전에는 예전 방식(순서 저장 → 시간 저장, 실패하면 되돌리기)으로 동작해요. 되돌리기: `supabase\rollback-012-reorder-times.sql`
 
-> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` → `migrate-006-scrapbook-design.sql` → `migrate-007-trip-info.sql` → `migrate-008-plan-status.sql` → `migrate-009-journal-scrapbooks.sql` → `migrate-010-roles.sql` → `migrate-011-transit.sql` → `migrate-012-reorder-times.sql` 순서로 실행하면 돼요.
+## 8-10. 대중교통 단계별 안내 (2026-11 추가)
+SQL Editor에서 `supabase\migrate-013-transit-steps.sql` 을 한 번 실행해요. (결과: **✔ 대중교통 단계별 안내 설정 완료**)
+이동 정보에 "타는 방법" 단계(어디서 타고 · 무엇을 타고 · 어디서 내리고 · 내려서 가는 길, 최대 4줄)를 함께 저장해요. 011 다음에 실행하고, 실행 전에는 단계만 저장되지 않아요. 되돌리기: `supabase\rollback-013-transit-steps.sql`
+
+> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` → `migrate-006-scrapbook-design.sql` → `migrate-007-trip-info.sql` → `migrate-008-plan-status.sql` → `migrate-009-journal-scrapbooks.sql` → `migrate-010-roles.sql` → `migrate-011-transit.sql` → `migrate-012-reorder-times.sql` → `migrate-013-transit-steps.sql` 순서로 실행하면 돼요.
 
 ## 9. 카카오 장소 검색 연결 (한국 장소 이름 정확하게)
 1. https://developers.kakao.com → 카카오 계정으로 로그인 (처음이면 개발자 등록 약관 동의)
