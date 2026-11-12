@@ -284,3 +284,11 @@ test('일기: 사진 수·빈 칸은 AI에게 보내지 않음 (없는 걸 "없�
   assert.ok(!p.includes('"tags"'));
   assert.ok(p.includes('성곽길 산책'));
 });
+
+test('일기: 사실("기록")과 맥락("참고")을 나눠 보내고, 날짜는 자연스럽게', () => {
+  const v = validateDiaryInput({ tripId: 3, facts: { place: '공산성', date: '2026-11-01', comment: '성곽길 산책', tags: ['산책'], category: '관광' } });
+  const p = buildDiaryPrompt(v, '공주 여행');
+  const json = JSON.parse(p.slice(p.indexOf('<data>') + 6, p.indexOf('</data>')));
+  assert.deepEqual(json.기록, { 장소: '공산성', 날짜: '11월 1일', 한줄코멘트: '성곽길 산책' });
+  assert.deepEqual(json.참고, { 여행이름: '공주 여행', 태그: ['산책'], 장소종류: '관광' });
+});
