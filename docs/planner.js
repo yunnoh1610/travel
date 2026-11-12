@@ -305,6 +305,13 @@
   }
 
   const memberName = (id) => trip()?.members.find((m) => m.id === id)?.name;
+  // 카드 오른쪽 버튼 아이콘 — Lucide (ISC License, https://lucide.dev) 의 check · pencil · grip-vertical 을 그대로 옮김
+  const svgIcon = (body) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+  const LUCIDE = {
+    check: svgIcon('<path d="M20 6 9 17l-5-5"/>'),
+    pencil: svgIcon('<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>'),
+    grip: svgIcon('<circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>'),
+  };
   function itemHtml(it, idx, n) {
     const time = it.start_time ? `${hhmm(it.start_time)}${it.end_time ? `<br><small>~${hhmm(it.end_time)}</small>` : ''}` : '<small>시간<br>미정</small>';
     const st = planSt(it);
@@ -329,10 +336,11 @@
         ${recs.map((p) => `<button type="button" class="pi-rec" data-rec="${p.id}">📷 실제 ${p.visited_time ? `${hhmm(p.visited_time)} 방문` : '방문'} · ${esc(p.name)} <span aria-hidden="true">›</span></button>`).join('')}
         ${st === 'DONE' && !recs.length && canEdit(P.tripId) ? '<button type="button" class="pi-rec add" data-record>📷 실제 기록 남기기</button>' : ''}
       </div>
-      <div class="pi-tools ${state.v008 ? 'four' : ''} ${P.sel ? 'hidden' : ''}">
-        ${state.v008 ? `<button class="icon-btn done-btn" data-done ${st === 'PLANNED' ? '' : 'disabled'} aria-label="방문 완료" title="방문 완료">✓</button>` : ''}
-        <button type="button" class="icon-btn drag-handle" data-handle aria-label="순서 바꾸기: 끌거나 카드를 길게 눌러 옮겨요 (키보드 ↑↓)" title="끌어서 순서 바꾸기">⠿</button>
-        <button class="icon-btn" data-edit aria-label="수정">✏️</button>
+      <div class="pi-tools ${P.sel ? 'hidden' : ''}">
+        ${state.v008 ? `<button type="button" class="pi-btn done-btn ${st === 'DONE' ? 'is-done' : ''}" data-done ${st === 'PLANNED' ? '' : 'disabled'}
+          aria-label="${st === 'DONE' ? '방문 완료됨' : '방문 완료'}" title="${st === 'DONE' ? '방문 완료됨' : '방문 완료'}">${LUCIDE.check}</button>` : ''}
+        <button type="button" class="pi-btn edit-btn" data-edit aria-label="수정" title="수정">${LUCIDE.pencil}</button>
+        <button type="button" class="pi-btn drag-handle" data-handle aria-label="순서 바꾸기: 끌거나 카드를 길게 눌러 옮겨요 (키보드 ↑↓)" title="끌어서 순서 바꾸기">${LUCIDE.grip}</button>
       </div>
     </li>`;
   }
