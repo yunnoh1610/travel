@@ -173,13 +173,19 @@
         <button class="chip-btn" data-act="edit-trip" style="margin-top:12px">📅 날짜 정하기</button></div>`;
     }
     const list = dayItems(P.day);
+    // 일정이 하나도 없는데 이미 다녀온 여행이면: 기록장 안내
+    const st = typeof tripStatus === 'function' ? tripStatus(t)?.key : null;
+    const noPlanNote = !P.items.length && st && st !== 'plan'
+      ? `<div class="notice">📒 이 여행은 계획 없이 다녀왔어요. 다녀온 기록은 <b>기록장</b>에 있어요.
+          <div class="btn-row" style="margin-top:8px"><button type="button" class="btn" data-act="goto-journal">📒 기록장 보기</button></div>
+          <small class="hint">지금이라도 일정을 남기고 싶으면 아래 ＋ 일정 추가를 눌러요.</small></div>` : '';
     const unknownCost = list.filter((i) => PLACE_TYPES.includes(i.item_type) && i.cost_estimate == null && planSt(i) !== 'CANCELLED').length;
     // 일정 추가(주 동작) + AI 일정 도우미(만들기·추가·수정 요청을 한곳에)
     const actions = `<div class="plan-actions">
         <button type="button" class="btn-main" data-act="add-item">＋ 일정 추가</button>
         <button type="button" class="btn-sub" data-act="ai-helper">✨ AI 일정 도우미</button>
       </div>`;
-    return `
+    return `${noPlanNote}
       <div class="day-chips" role="tablist" aria-label="날짜">
         ${days.map((d, i) => `<button type="button" role="tab" aria-selected="${d === P.day}" class="day-chip ${d === P.day ? 'on' : ''}" data-day="${d}" aria-label="${i + 1}일차 ${fmtDate(d)}">
           <b>${i + 1}일차</b><small>${short(d)} ${wday(d)}</small>${P.items.some((x) => x.day_date === d) ? '<i class="dot" aria-hidden="true"></i>' : ''}</button>`).join('')}
@@ -361,6 +367,7 @@
       else if (act === 'more') openMore();
       else if (act === 'add-expense') openExpenseForm(null);
       else if (act === 'ck-defaults') addDefaultChecks();
+      else if (act === 'goto-journal') switchView('journal');
     });
     root.addEventListener('change', async (e) => {
       const ck = e.target.closest('[data-ck]');

@@ -813,7 +813,7 @@ function candChips(cands, prefix = '', chosen = '') {
 }
 
 // ---------- 상태 ----------
-const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true, mapShow: 'all', mapDay: '', favs: new Set(), jq: { text: '', fav: false, mood: '', tag: '' } };
+const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true, mapShow: 'all', mapDay: '', favs: new Set(), jq: { text: '', fav: false, mood: '', tag: '', plans: true } };
 let map;
 let markerLayer;
 
@@ -1123,8 +1123,20 @@ function renderFilter() {
     + state.trips.map((t) => `<option value="${t.id}">${kindEmoji(t.kind)} ${esc(t.title)} (${countLabel(t.place_count, t.plan_count)})</option>`).join('');
   sel.value = String(state.filter);
 }
+/**
+ * 타임라인·기록장을 보다가 다른 여행을 고르면, 여행 상태에 맞는 탭을 먼저 보여 줘요
+ * 계획 중(D-n) → 타임라인(일정) · 여행 중·다녀온 여행 → 기록장 (남은 일정도 기록장에 함께 보여요)
+ */
+function autoTab(id) {
+  if (id === 'all' || !['timeline', 'journal'].includes(state.view)) return;
+  const st = tripStatus(tripById(id))?.key;
+  if (!st) return;
+  const want = st === 'plan' ? 'timeline' : 'journal';
+  if (want !== state.view) switchView(want);
+}
 $('#tripFilter').onchange = (e) => {
   state.filter = e.target.value === 'all' ? 'all' : Number(e.target.value);
+  autoTab(state.filter);
   refresh(true);
 };
 
@@ -1228,9 +1240,12 @@ function renderJournal() {
   if (!el) return;
   const t = state.filter !== 'all' ? state.trips.find((x) => x.id === state.filter) : null;
   const head = `<div class="section-head"><h2>📒 기록장</h2><small class="muted">${t ? esc(t.title) : '모든 여행'} · ${state.places.length}곳</small></div>${roBanner(t)}`;
-  if (!state.places.length) {
+  if (!state.places.length && !pendingPlans().length) {
+    const planning = t && tripStatus(t)?.key === 'plan';
     el.innerHTML = `${head}<div class="empty"><div class="big">${ic('🗺️')}</div>아직 기록이 없어요<br>
-      <small>오른쪽 아래 ＋ 버튼으로 다녀온 곳과 사진을 남겨 보세요</small></div>`;
+      <small>${planning ? '여행을 떠나면 다녀온 곳과 사진을 여기에 남겨요. 지금은 타임라인에서 일정을 세워 보세요'
+        : '오른쪽 아래 ＋ 버튼으로 다녀온 곳과 사진을 남겨 보세요'}</small>
+      ${planning ? '<br><button type="button" class="chip-btn" data-goto="timeline" style="margin-top:12px">📅 타임라인으로</button>' : ''}</div>`;
     return;
   }
   // 검색 칸은 그대로 두고 목록만 다시 그려요 (입력 중 커서 유지)
@@ -1247,6 +1262,23 @@ function renderJournal() {
   renderJournalChips();
   renderJournalList();
 }
+/** 한 여행을 골랐을 때, 아직 기록이 없는 예정 일정 (취소·완료·기록 연결된 일정은 빼요) */
+function pendingPlans() {
+  if (state.filter === 'all') return [];
+  return state.plans.filter((i) => i.trip_id === state.filter && planSt(i) === 'PLANNED' && !recordsOfPlan(i.id).length);
+}
+function planCard(it) {
+  const time = it.start_time ? `${hhmm(it.start_time)}${it.end_time ? `~${hhmm(it.end_time)}` : ''}` : '시간 미정';
+  return `<div class="card plan-card" data-plan="${it.id}" role="button" tabindex="0" aria-label="예정 일정 ${esc(it.title)}">
+    <div class="thumb">${ic(PLAN_EMO[it.item_type] || '✨')}</div>
+    <div class="body">
+      <span class="tl-time plan">📋 예정 · ${time}</span>
+      <b>${esc(it.title)}</b>
+      ${it.place_name && it.place_name !== it.title ? `<small>📍 ${esc(it.place_name)}</small>` : ''}
+    </div>
+    ${canEdit(it.trip_id) ? '<button type="button" class="plan-go" data-plan-done aria-label="방문 기록 남기기">✓ 기록</button>' : ''}
+  </div>`;
+}
 function renderJournalChips() {
   const box = $('#jrChips');
   if (!box) return;
@@ -1256,10 +1288,12 @@ function renderJournalChips() {
   const tags = [...count].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([tg]) => tg);
   if (q.tag && !tags.includes(q.tag)) tags.unshift(q.tag);
   const moods = Object.keys(MOODS).filter((m) => state.places.some((p) => p.mood === m));
-  box.innerHTML = state.v009 ? `
+  const plansChip = pendingPlans().length
+    ? `<button type="button" class="jr-chip ${q.plans ? 'on' : ''}" data-jf="plans" aria-pressed="${q.plans}">📋 남은 일정 ${pendingPlans().length}</button>` : '';
+  box.innerHTML = !state.v009 ? plansChip : `${plansChip}
     <button type="button" class="jr-chip ${q.fav ? 'on' : ''}" data-jf="fav" aria-pressed="${q.fav}">★ 즐겨찾기</button>
     ${moods.map((m) => `<button type="button" class="jr-chip ${q.mood === m ? 'on' : ''}" data-jmood="${m}" aria-pressed="${q.mood === m}">${MOODS[m][0]} ${MOODS[m][1]}</button>`).join('')}
-    ${tags.map((tg) => `<button type="button" class="jr-chip ${q.tag === tg ? 'on' : ''}" data-jtag="${esc(tg)}" aria-pressed="${q.tag === tg}">#${esc(tg)}</button>`).join('')}` : '';
+    ${tags.map((tg) => `<button type="button" class="jr-chip ${q.tag === tg ? 'on' : ''}" data-jtag="${esc(tg)}" aria-pressed="${q.tag === tg}">#${esc(tg)}</button>`).join('')}`;
 }
 function renderJournalList() {
   const box = $('#jrList');
@@ -1270,18 +1304,22 @@ function renderJournalList() {
   const list = state.places.filter((p) => (!q.fav || state.favs.has(p.id)) && (!q.mood || p.mood === q.mood)
     && (!q.tag || p.tags?.includes(q.tag)) && words.every((w) => hay(p).includes(w)));
   const filtered = words.length || q.fav || q.mood || q.tag;
-  if (!list.length) {
+  // 남은 일정: 즐겨찾기·기분·태그로 거를 때는 빼고, 검색어는 일정 이름·장소에도 적용
+  const plans = q.plans && !q.fav && !q.mood && !q.tag
+    ? pendingPlans().filter((i) => words.every((w) => [i.title, i.place_name, i.notes].filter(Boolean).join(' ').toLowerCase().includes(w))) : [];
+  if (!list.length && !plans.length) {
     box.innerHTML = `<div class="empty small">찾는 기록이 없어요${filtered ? '<br><button type="button" class="chip-btn" data-jclear style="margin-top:10px">조건 지우기</button>' : ''}</div>`;
     return;
   }
-  const entries = list.map((p) => ({ date: visitKey(p), time: hhmm(p.visited_time), id: p.id, p }));
+  const entries = list.map((p) => ({ date: visitKey(p), time: hhmm(p.visited_time), id: p.id, p }))
+    .concat(plans.map((i) => ({ date: i.day_date, time: hhmm(i.start_time), id: 1e9 + i.id, plan: i })));
   entries.sort((a, b) => b.date.localeCompare(a.date)
     || (a.time ? 0 : 1) - (b.time ? 0 : 1) || a.time.localeCompare(b.time) || a.id - b.id);
   let html = filtered ? `<div class="jr-count muted">${list.length}개 찾음 <button type="button" class="link" data-jclear>조건 지우기</button></div>` : '';
   let last = null;
   for (const x of entries) {
     if (x.date !== last) { html += `<h3 class="tl-date">${fmtDate(x.date)}</h3>`; last = x.date; }
-    html += placeCard(x.p);
+    html += x.plan ? planCard(x.plan) : placeCard(x.p);
   }
   box.innerHTML = html;
 }
@@ -1292,6 +1330,8 @@ $('#journal').addEventListener('input', (e) => {
 });
 $('#journal').onclick = (e) => {
   const q = state.jq;
+  const go = e.target.closest('[data-goto]');
+  if (go) { switchView(go.dataset.goto); return; }
   if (e.target.closest('[data-jclear]')) {
     Object.assign(q, { text: '', fav: false, mood: '', tag: '' });
     const inp = $('#jrSearch');
@@ -1299,9 +1339,16 @@ $('#journal').onclick = (e) => {
     renderJournalChips(); renderJournalList();
     return;
   }
+  const pc = e.target.closest('[data-plan]');
+  if (pc) {
+    const it = state.plans.find((i) => i.id === Number(pc.dataset.plan));
+    if (it) { if (e.target.closest('[data-plan-done]')) openPlanDone(it); else openPlanSheet(it); }
+    return;
+  }
   const chip = e.target.closest('[data-jf], [data-jmood], [data-jtag]');
   if (chip) {
-    if (chip.dataset.jf) q.fav = !q.fav;
+    if (chip.dataset.jf === 'fav') q.fav = !q.fav;
+    if (chip.dataset.jf === 'plans') q.plans = !q.plans;
     if (chip.dataset.jmood) q.mood = q.mood === chip.dataset.jmood ? '' : chip.dataset.jmood;
     if (chip.dataset.jtag != null) q.tag = q.tag === chip.dataset.jtag ? '' : chip.dataset.jtag;
     renderJournalChips(); renderJournalList();
@@ -1368,6 +1415,7 @@ function openTripsSheet() {
     const c = e.target.closest('[data-trip]');
     if (!c) return;
     state.filter = c.dataset.trip === 'all' ? 'all' : Number(c.dataset.trip);
+    autoTab(state.filter);
     closeSheet();
     refresh(true);
   };

@@ -420,3 +420,9 @@ body.read-only [data-m="edit"], body.read-only [data-m="import"] { display: none
 /* ===== 브랜드: 모아로그 로고 (로그인 화면) ===== */
 .brand-logo { margin: 0 0 4px; line-height: 0; }
 .brand-logo img { width: min(260px, 80%); height: auto; }
+
+/* ===== 기록장의 남은 일정 (흐린 카드) ===== */
+.card.plan-card { border-style: dashed; border-color: var(--accent); background: transparent; opacity: .82; align-items: center; cursor: pointer; }
+.card.plan-card .thumb { background: var(--accent-soft, #ece8f7); display: flex; align-items: center; justify-content: center; }
+.tl-time.plan { color: var(--accent); }
+.plan-go { flex: none; border: 1px solid var(--accent); background: var(--card); color: var(--accent); font-weight: 800; font-size: 13px; padding: 8px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
