@@ -479,3 +479,15 @@ body.plan-dragging { -webkit-user-select: none; user-select: none; cursor: grabb
 .pi-steps li { margin: 1px 0; }
 .pi-steps-note { font-size: 11.5px; }
 .pv-steps { flex-basis: 100%; font-size: 12px; color: var(--text); opacity: .85; }
+
+/* 이동 수단·시간 고치기 */
+.move-edit { width: 36px; height: 36px; min-width: 36px; border: 0; background: transparent; border-radius: 10px; color: #8a84a0;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.move-edit svg { width: 17px; height: 17px; }
+.move-edit:hover, .move-edit:focus-visible { background: var(--accent-soft, #efeaf9); color: var(--accent); }
+.route-btn + .move-edit { margin-left: 0; }
+.pi-move-head .route-btn:only-of-type { margin-left: auto; }
+.pi-move-head:not(:has(.route-btn)) .move-edit { margin-left: auto; }
+.tr-min { display: flex; align-items: center; gap: 8px; }
+.tr-min input { flex: 1; min-width: 0; text-align: center; }
+.tr-modes { gap: 6px; }

@@ -207,11 +207,133 @@
         ${it.transit ? `<span>${transitText(it.transit)}</span>${it.transit.est === 'DIST' ? '<small class="muted" title="두 장소의 실제 거리로 계산한 시간이에요. 신호·배차에 따라 달라질 수 있어요">거리로 계산</small>' : ai ? '<small class="muted">AI 추정</small>' : ''}` : '<span class="muted">이동 방법 미정</span>'}
         ${dist != null && dist > 30 ? `<small class="muted">📏 직선 ${kmText(dist)}</small>` : ''}
         ${it.lat != null ? `<a class="route-btn" href="${esc(routeUrl(prev, it))}" target="_blank" rel="noopener noreferrer" aria-label="${esc(it.title)}까지 지도 앱 길찾기">🗺️ 길찾기</a>` : ''}
+        ${state.v011 && canEdit(P.tripId) && !P.sel ? `<button type="button" class="move-edit" data-transit-edit="${it.id}" aria-label="${esc(it.title)}까지 이동 수단·시간 고치기" title="이동 수단·시간 고치기">${LUCIDE.pencil}</button>` : ''}
       </div>
       ${steps.length ? `<ol class="pi-steps">${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
       ${transitMode && it.lat != null ? '<small class="muted pi-steps-note">버스·지하철 번호와 시간은 🗺️ 길찾기에서 확인해요</small>' : ''}
     </li>`;
   }
+  // ---------- 이동 수단·시간 고치기 (이동 줄의 ✏️) ----------
+  // 고친 이동 정보는 byUser 로 표시해서 거리 계산·AI 가 덮어쓰지 않아요.
+  // "뒤 일정도 함께": 이동 시간이 늘거나 줄어든 만큼 이 일정과 그 뒤 일정의 시간을 같이 밀거나 당겨요 (순서·시간 한 번에 저장)
+  function openTransitForm(id) {
+    const list = dayItems(P.day);
+    const it = list.find((x) => x.id === id);
+    if (!it) return;
+    const seq = list.filter((x) => planSt(x) !== 'CANCELLED');
+    const prev = seq[seq.indexOf(it) - 1] || null;
+    const t = it.transit || {};
+    const dist = prev && prev.lat != null && it.lat != null ? distM(prev, it) : null;
+    const oldMin = Number.isInteger(t.minutes) ? t.minutes : null;
+    const body = openSheet(`<h2>이동 수단·시간 고치기</h2>
+      <p class="muted" style="margin-top:-4px">${prev ? `${esc(prev.title)} → ` : ''}<b>${esc(it.title)}</b>${dist != null ? ` · 📏 직선 ${kmText(dist)}` : ''}</p>
+      <form id="trForm" autocomplete="off">
+        <div class="field"><span>이동 수단</span><div class="cats tr-modes">
+          ${Object.entries(TRANSIT).map(([k, [e, l]]) => `<label><input type="radio" name="mode" value="${k}" ${t.mode === k ? 'checked' : ''}><span>${e} ${l}</span></label>`).join('')}</div></div>
+        <div class="field"><span>걸리는 시간 (분)</span>
+          <div class="tr-min"><button type="button" class="chip-btn" data-step="-5">−5</button>
+            <input type="number" name="minutes" min="1" max="1440" inputmode="numeric" value="${oldMin ?? ''}" placeholder="모르면 비워 두기" aria-label="걸리는 시간(분)">
+            <button type="button" class="chip-btn" data-step="5">+5</button></div></div>
+        <label class="field"><span>설명 (선택)</span><input name="detail" maxlength="80" value="${esc(t.detail || '')}" placeholder="예: 공주종합버스터미널에서 시내버스"></label>
+        ${state.v013 ? `<label class="field tr-steps"><span>타는 방법 (대중교통, 한 줄에 하나 · 4줄까지)</span>
+          <textarea name="steps" rows="3" maxlength="260" placeholder="예: 터미널 앞 정류장에서 탑승&#10;공산성 방면 시내버스&#10;공산성 정류장에서 하차">${esc((t.steps || []).join('\n'))}</textarea></label>` : ''}
+        ${it.start_time ? `<label class="chk-line tr-shift"><input type="checkbox" name="shift" checked> <span id="trShiftLabel">이동 시간이 바뀐 만큼 이 일정과 뒤 일정 시간도 함께 옮기기</span></label>` : ''}
+        <button class="primary" type="submit">저장</button>
+        <div class="btn-row" style="margin-top:10px">
+          ${dist != null ? '<button type="button" class="btn" data-tr="auto">📏 거리로 다시 계산</button>' : ''}
+          ${it.transit ? '<button type="button" class="btn danger" data-tr="clear">이동 정보 지우기</button>' : ''}
+        </div>
+        <small class="hint">직접 고친 이동 정보는 거리 계산이나 AI 가 바꾸지 않아요. 정확한 노선·시간은 🗺️ 길찾기에서 확인해요.</small>
+      </form>`);
+    const f = $('#trForm', body);
+    const showSteps = () => { const box = $('.tr-steps', body); if (box) box.classList.toggle('hidden', !STEP_MODES.includes(f.mode.value)); };
+    const shiftLabel = () => {
+      const lab = $('#trShiftLabel', body);
+      if (!lab) return;
+      const d = (Number(f.minutes.value) || 0) - (oldMin ?? 0);
+      lab.textContent = oldMin == null || !f.minutes.value || !d ? '이동 시간이 바뀐 만큼 이 일정과 뒤 일정 시간도 함께 옮기기'
+        : `이 일정과 뒤 일정 시간을 ${Math.abs(d)}분 ${d > 0 ? '늦추기' : '앞당기기'}`;
+    };
+    showSteps();
+    shiftLabel();
+    f.onchange = (e) => { if (e.target.name === 'mode') showSteps(); shiftLabel(); };
+    f.oninput = shiftLabel;
+    body.onclick = (e) => {
+      const st = e.target.closest('[data-step]');
+      if (st) {
+        f.minutes.value = Math.min(1440, Math.max(1, (Number(f.minutes.value) || 0) + Number(st.dataset.step)));
+        shiftLabel();
+        return;
+      }
+      const a = e.target.closest('[data-tr]')?.dataset.tr;
+      if (a === 'auto') {
+        const r = window.PlanTime.estimateTransit(prev, it, P.prefs.transport, null, true);
+        if (!r) return;
+        const radio = f.querySelector(`input[name=mode][value="${r.mode}"]`);
+        if (radio) radio.checked = true;
+        f.minutes.value = r.minutes ?? '';
+        showSteps();
+        shiftLabel();
+        toast(`거리로 계산했어요: ${TRANSIT[r.mode][1]} 약 ${r.minutes}분 (저장을 눌러야 반영돼요)`);
+      } else if (a === 'clear') {
+        if (!confirm('이 구간의 이동 정보를 지울까요?')) return;
+        saveTransitEdit(it, null, 0);
+      }
+    };
+    f.onsubmit = (e) => {
+      e.preventDefault();
+      const mode = f.mode.value;
+      if (!mode) return toast('이동 수단을 골라 주세요');
+      const mins = Number(f.minutes.value);
+      const minutes = Number.isInteger(mins) && mins >= 1 && mins <= 1440 ? mins : null;
+      const transit = { mode, minutes, detail: f.detail.value.trim() || null, byUser: true };
+      if (state.v013) transit.steps = STEP_MODES.includes(mode) && f.steps ? f.steps.value.split('\n').map((x) => x.trim().slice(0, 60)).filter(Boolean).slice(0, 4) : [];
+      const delta = f.shift?.checked && oldMin != null && minutes != null ? minutes - oldMin : 0;
+      saveTransitEdit(it, transit, delta);
+    };
+  }
+  async function saveTransitEdit(it, transit, delta) {
+    const list = dayItems(P.day);
+    const btn = $('#trForm button[type=submit]');
+    if (btn) btn.disabled = true;
+    try {
+      // 1) 뒤 일정 시간 옮기기 (자정을 넘거나 0시 전으로 가면 하지 않음)
+      let shifted = 0;
+      if (delta) {
+        const from = list.indexOf(it);
+        const toM = window.PlanTime.toMin;
+        const hh = window.PlanTime.toHHMM;
+        const times = list.map((x, k) => {
+          const s0 = toM(x.start_time);
+          const e0 = toM(x.end_time);
+          if (k < from || s0 == null) return { s: s0 == null ? null : hh(s0), e: e0 == null ? null : hh(e0) };
+          return { s: hh(s0 + delta), e: e0 == null ? null : hh(e0 + delta), bad: s0 + delta < 0 || (e0 ?? s0) + delta > 1439 };
+        });
+        if (times.some((x) => x.bad)) throw new Error(`시간을 ${Math.abs(delta)}분 옮기면 하루를 넘어가요. 이동 정보만 저장하려면 '시간도 함께 옮기기'를 끄고 저장해 주세요`);
+        const ids = list.map((x) => x.id);
+        try {
+          await pq(sb.rpc('reorder_itinerary_times', { p_trip_id: P.tripId, p_day: P.day, p_ids: ids, p_starts: times.map((x) => x.s), p_ends: times.map((x) => x.e) }));
+        } catch (err) {
+          if (err.code !== 'NEEDS_MIGRATION') throw err;
+          for (let k = list.indexOf(it); k < list.length; k++) {
+            if (times[k].s == null) continue;
+            await changed(sb.from('itinerary_items').update({ start_time: times[k].s, end_time: times[k].e, user_edited: true }).eq('id', list[k].id).select('id'));
+          }
+        }
+        shifted = list.slice(list.indexOf(it)).filter((x) => x.start_time).length;
+      }
+      // 2) 이동 정보
+      await changed(sb.from('itinerary_items').update({ transit }).eq('id', it.id).select('id'));
+      closeSheet();
+      await reload();
+      toast(!transit ? '이동 정보를 지웠어요'
+        : shifted ? `이동을 고치고 일정 ${shifted}개의 시간을 ${Math.abs(delta)}분 ${delta > 0 ? '늦췄어요' : '앞당겼어요'}` : '이동 수단·시간을 고쳤어요');
+    } catch (err) {
+      toast(err.message);
+      if (btn) btn.disabled = false;
+    }
+  }
+
   function planListHtml(list) {
     let prev = null;
     return list.map((it, idx) => {
@@ -498,6 +620,8 @@
       const item = e.target.closest('[data-item]');
       if (item && e.target.closest('[data-edit]')) { openItemForm(P.items.find((x) => x.id === Number(item.dataset.item))); return; }
       if (item && e.target.closest('[data-done]')) { openPlanDone(P.items.find((x) => x.id === Number(item.dataset.item))); return; }
+      const te = e.target.closest('[data-transit-edit]');
+      if (te) { openTransitForm(Number(te.dataset.transitEdit)); return; }
       const rec = e.target.closest('[data-rec]');
       if (rec) { openPlace(Number(rec.dataset.rec)); return; }
       if (item && e.target.closest('[data-record]')) { recordFromPlan(P.items.find((x) => x.id === Number(item.dataset.item))); return; }
