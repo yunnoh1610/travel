@@ -373,3 +373,29 @@ main { flex: 1; position: relative; overflow: hidden; }
 .rc-day.ranged.end { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .rc-foot { display: flex; justify-content: space-between; }
 .rc-foot .link { min-height: 44px; }
+
+/* ===== Phase 3: 기록 제목·감정·태그·즐겨찾기·검색 ===== */
+.card-sub { display: block; font-size: 12px; }
+.fav-on { color: #f2a900; }
+.tag-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; }
+.tag { font-size: 11.5px; font-weight: 700; color: var(--accent); background: var(--accent-soft, #ece8f7); padding: 1px 7px; border-radius: 999px; }
+.mood-chip { font-size: 12px; font-weight: 700; background: #fff4d6; color: #7a5a00; padding: 2px 8px; border-radius: 999px; }
+.pd-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fav-btn { border: 1px solid var(--line); background: var(--card); color: #b9b4c7; font-size: 22px; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; }
+.fav-btn.on { color: #f2a900; border-color: #f2c94c; background: #fff8e1; }
+.pd-place { margin: -4px 0 6px; font-size: 14px; }
+.pd-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.small-note { font-size: 13px; align-self: center; }
+.jr-bar { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 4px 0 8px; margin-bottom: 4px; }
+.jr-bar input[type=search] { width: 100%; padding: 11px 14px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 15px; background: var(--card); }
+.jr-chips { display: flex; gap: 6px; overflow-x: auto; padding-top: 8px; scrollbar-width: none; }
+.jr-chips:empty { display: none; }
+.jr-chip { flex: none; border: 1px solid var(--line); background: var(--card); padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--text); cursor: pointer; white-space: nowrap; }
+.jr-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.jr-count { font-size: 13px; margin: 4px 0 8px; }
+.chk-line { display: flex; align-items: center; gap: 6px; font-size: 14px; margin-top: 8px; }
+.chk-line input { width: 18px; height: 18px; accent-color: var(--accent); }
+.diary-ai { margin: -6px 0 14px; }
+.diary-preview { margin-top: 8px; padding: 12px; border: 1px dashed var(--accent); border-radius: var(--radius); background: var(--card); display: flex; flex-direction: column; gap: 6px; }
+.diary-preview p { margin: 0; white-space: pre-wrap; line-height: 1.6; }
+.diary-preview .mini-seg { margin: 0; }

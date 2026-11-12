@@ -1,5 +1,5 @@
 // Supabase Edge Function: ai-planner
-// POST /functions/v1/ai-planner  { action: 'generate' | 'revise', tripId, ... }
+// POST /functions/v1/ai-planner  { action: 'generate' | 'revise' | 'diary', tripId, ... }
 //
 // 호출 순서: 로그인 확인(JWT) → 여행 멤버 확인 → 입력 검증 → 사용량 제한 → 저장된 일정 조회
 //   → 장소 후보(카카오, 선택) → OpenAI Responses API (JSON Schema 구조화 출력) → 결과 검증
@@ -16,6 +16,7 @@ import {
   REVISE_SCHEMA, SYSTEM_PROMPT, validateGenerateInput, validateReviseInput, ValidationError, annotateDistances, type CurrentItem,
 } from '../_shared/plan-core.ts';
 import { PlaceSearch, verifyItems } from '../_shared/places.ts';
+import { buildDiaryPrompt, DIARY_SCHEMA, DIARY_SYSTEM_PROMPT, normalizeDiary, validateDiaryInput } from '../_shared/diary-core.ts';
 
 const env = (k: string, d = '') => Deno.env.get(k) ?? d;
 const MODEL = env('OPENAI_MODEL', 'gpt-5-mini');
@@ -58,15 +59,15 @@ async function log(row: Record<string, unknown>) {
 // ---------- OpenAI Responses API ----------
 interface AiResult { data: unknown; inputTokens: number | null; outputTokens: number | null }
 
-async function callOpenAI(prompt: string, schemaName: string, schema: unknown): Promise<AiResult> {
+async function callOpenAI(prompt: string, schemaName: string, schema: unknown, instructions = SYSTEM_PROMPT, maxTokens = 12000): Promise<AiResult> {
   const key = env('OPENAI_API_KEY');
   if (!key) throw new HttpError(503, 'AI_UNAVAILABLE', 'AI 기능이 아직 설정되지 않았어요 (서버 설정 필요)');
   const body: Record<string, unknown> = {
     model: MODEL,
-    instructions: SYSTEM_PROMPT,
+    instructions,
     input: prompt,
     store: false,
-    max_output_tokens: 12000,
+    max_output_tokens: maxTokens,
     text: { format: { type: 'json_schema', name: schemaName, schema, strict: true } },
   };
   if (REASONING) body.reasoning = { effort: REASONING };
@@ -210,6 +211,16 @@ async function revise(body: Record<string, unknown>, userId: string) {
   };
 }
 
+// ---------- 여행 일기 초안 (저장하지 않고 돌려주기만, 앱에서 확인 후 반영) ----------
+async function diary(body: Record<string, unknown>, userId: string) {
+  const input = validateDiaryInput(body);
+  const { trip } = await loadTrip(input.tripId, userId);
+  await rateLimit(userId);
+  const ai = await callOpenAI(buildDiaryPrompt(input, trip.title), 'diary', DIARY_SCHEMA, DIARY_SYSTEM_PROMPT, 4000);
+  const result = normalizeDiary(ai.data);
+  return { ai, response: { ...result, model: MODEL } };
+}
+
 // ---------- 진입점 ----------
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors(req) });
@@ -233,6 +244,7 @@ Deno.serve(async (req) => {
     let out;
     if (feature === 'generate') out = await generate(body, userId);
     else if (feature === 'revise') out = await revise(body, userId);
+    else if (feature === 'diary') out = await diary(body, userId);
     else throw new ValidationError(['알 수 없는 요청이에요']);
 
     await log({ user_id: userId, trip_id: tripId, feature, status: 'ok', model: MODEL, input_tokens: out.ai.inputTokens, output_tokens: out.ai.outputTokens });

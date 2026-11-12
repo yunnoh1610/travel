@@ -208,7 +208,7 @@ const db = {
     // 005(기록 시각·일정 연결) 전이면 새 칸 없이 예전처럼 읽음
     const run = (v5) => {
       let qb = sb.from('places')
-        .select(`id, trip_id, user_id, name, lat, lng, visited_at, ${v5 ? 'visited_time, plan_item_id, ' : ''}comment, memo, category, created_at, author:profiles(name), trip:trips(title), photos(id, user_id, path, thumb_path${v5 ? ', taken_at' : ''}), place_comments(count)`)
+        .select(`id, trip_id, user_id, name, lat, lng, visited_at, ${v5 ? 'visited_time, plan_item_id, ' : ''}${state.v009 ? 'title, mood, tags, ' : ''}comment, memo, category, created_at, author:profiles(name), trip:trips(title), photos(id, user_id, path, thumb_path${v5 ? ', taken_at' : ''}), place_comments(count)`)
         .order('id', { referencedTable: 'photos', ascending: true });
       if (filter !== 'all') qb = qb.eq('trip_id', filter);
       return qb;
@@ -333,10 +333,108 @@ const db = {
 
 // DB 설정 005 전이면 새 칸(기록 시각·일정 연결)을 빼고 보냄
 function v5(f) {
-  if (state.v005) return f;
-  const { visited_time, plan_item_id, ...rest } = f; // eslint-disable-line no-unused-vars
-  return rest;
+  let out = f;
+  if (!state.v005) { const { visited_time, plan_item_id, ...rest } = out; out = rest; } // eslint-disable-line no-unused-vars
+  if (!state.v009) { const { title, mood, tags, ...rest } = out; out = rest; } // eslint-disable-line no-unused-vars
+  return out;
 }
+
+// ---------- 기록 제목·감정·태그 (DB 설정 009) ----------
+const MOODS = {
+  HAPPY: ['😊', '행복'], EXCITED: ['🥰', '설렘'], CALM: ['😌', '평온'], YUMMY: ['😋', '맛있음'],
+  MOVED: ['🤩', '감동'], TIRED: ['😴', '피곤'], SAD: ['😢', '아쉬움'],
+};
+const parseTags = (v) => [...new Set(String(v || '').split(/[,，#\n]/).map((x) => x.trim().slice(0, 20)).filter(Boolean))].slice(0, 10);
+/** 기록 쓰기·수정 창의 제목·감정·태그 칸 (009 전이면 비움) */
+function journalFields(p = {}) {
+  if (!state.v009) return '';
+  return `<label class="field"><span>제목 (선택) <small>40자</small></span><input name="title" maxlength="40" value="${esc(p.title || '')}" placeholder="예: 성곽 위에서 본 노을"></label>
+    <div class="field"><span>그때 기분</span><div class="cats moods">
+      <label><input type="radio" name="mood" value="" ${p.mood ? '' : 'checked'}><span>없음</span></label>
+      ${Object.entries(MOODS).map(([k, [e, l]]) => `<label><input type="radio" name="mood" value="${k}" ${p.mood === k ? 'checked' : ''}><span>${e} ${l}</span></label>`).join('')}</div></div>
+    <label class="field"><span>태그 <small>쉼표로 구분 · 10개까지</small></span><input name="tags" maxlength="200" value="${esc((p.tags || []).join(', '))}" placeholder="예: 야경, 산책, 가족"></label>`;
+}
+function readJournal(f) {
+  if (!state.v009) return {};
+  const tags = parseTags(f.tags?.value);
+  return { title: f.title?.value.trim() || null, mood: f.mood?.value || null, tags: tags.length ? tags : null };
+}
+const moodHtml = (m) => (MOODS[m] ? `<span class="mood-chip">${MOODS[m][0]} ${MOODS[m][1]}</span>` : '');
+const tagsHtml = (tags) => (tags?.length ? `<span class="tag-list">${tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</span>` : '');
+async function loadFavs() {
+  if (!state.v009) { state.favs = new Set(); return; }
+  try {
+    const r = await sb.from('place_favorites').select('place_id');
+    state.favs = new Set(r.error ? [] : r.data.map((x) => x.place_id));
+  } catch { state.favs = new Set(); }
+}
+async function toggleFav(id) {
+  const on = state.favs.has(id);
+  const res = on ? await sb.from('place_favorites').delete().eq('place_id', id).eq('user_id', state.me.id)
+    : await sb.from('place_favorites').insert({ place_id: id });
+  if (res.error) throw new Error(korean(res.error));
+  if (on) state.favs.delete(id); else state.favs.add(id);
+  renderJournal();
+  return !on;
+}
+
+// ---------- ✨ AI 일기 도우미: 적어 둔 사실만으로 이야기 초안 (확인 후 반영) ----------
+const DIARY_TONES = { WARM: '다정하게', PLAIN: '담백하게', SHORT: '짧게' };
+function diaryBox() {
+  return state.v009 ? `<div class="diary-ai"><button type="button" class="btn-sub" data-diary>✨ AI로 이야기 정리하기</button><div class="diary-out"></div></div>` : '';
+}
+/** form: 기록 쓰기/수정 form, ctx(): { tripId, name, date, time, category, plan } */
+function bindDiary(form, ctx) {
+  const box = form.querySelector('.diary-ai');
+  if (!box) return;
+  const out = box.querySelector('.diary-out');
+  let tone = 'WARM';
+  const facts = () => {
+    const c = ctx();
+    const j = readJournal(form);
+    return {
+      place: (form.name?.value || c.name || '').trim(), date: c.date || null, time: c.time || null,
+      category: CATS[c.category]?.[1] || null, comment: form.comment?.value.trim() || null, memo: form.memo?.value.trim() || null,
+      mood: j.mood ? MOODS[j.mood][1] : null, tags: j.tags || [], title: j.title || null, plan: c.plan || null, photoCount: c.photoCount || 0,
+    };
+  };
+  async function run() {
+    const f = facts();
+    if (!f.comment && !f.memo && !f.tags.length && !f.mood) {
+      out.innerHTML = '<div class="hint">한줄 코멘트·이야기·기분·태그 중 하나라도 적어 주세요. 적은 내용만으로 일기를 정리해요 (없는 사실은 만들지 않아요).</div>';
+      return;
+    }
+    if (!navigator.onLine) { out.innerHTML = '<div class="hint">인터넷 연결을 확인해 주세요</div>'; return; }
+    out.innerHTML = '<div class="hint"><span class="spinner small"></span> AI가 이야기를 정리하는 중… (10~30초)</div>';
+    const { data, error } = await sb.functions.invoke('ai-planner', { body: { action: 'diary', tripId: ctx().tripId, tone, facts: f } });
+    if (!box.isConnected) return;
+    if (error) {
+      let payload = null;
+      try { payload = await error.context?.json(); } catch { /* 본문 없음 */ }
+      const msg = payload?.error?.message || (error.name === 'FunctionsFetchError' ? 'AI 서버에 연결하지 못했어요' : 'AI 요청에 실패했어요. 잠시 후 다시 시도해 주세요');
+      out.innerHTML = `<div class="notice error">${esc(msg)}</div>`;
+      return;
+    }
+    out.innerHTML = `<div class="diary-preview">
+      <small class="muted">AI 초안 · 아직 반영 안 됨 · 적어 둔 내용만으로 썼어요</small>
+      ${data.title ? `<b>${esc(data.title)}</b>` : ''}
+      <p>${esc(data.story || '')}</p>
+      ${data.warnings?.length ? `<small class="hint">⚠ ${data.warnings.map(esc).join(' · ')}</small>` : ''}
+      <div class="seg mini-seg">${Object.entries(DIARY_TONES).map(([k, l]) => `<button type="button" data-tone="${k}" class="${k === tone ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="btn-row"><button type="button" class="btn" data-dapply>이야기에 넣기</button><button type="button" class="btn" data-dclose>닫기</button></div>
+    </div>`;
+    out.querySelector('[data-dapply]').onclick = () => {
+      if (form.memo.value.trim() && !confirm('지금 적힌 이야기를 AI 초안으로 바꿀까요?')) return;
+      form.memo.value = String(data.story || '').slice(0, 2000);
+      if (form.title && !form.title.value.trim() && data.title) form.title.value = String(data.title).slice(0, 40);
+      out.innerHTML = '<div class="hint">✓ 이야기에 넣었어요. 저장해야 기록에 남아요.</div>';
+    };
+    out.querySelector('[data-dclose]').onclick = () => { out.innerHTML = ''; };
+    out.querySelectorAll('[data-tone]').forEach((b) => { b.onclick = () => { tone = b.dataset.tone; run(); }; });
+  }
+  box.querySelector('[data-diary]').onclick = run;
+}
+
 const hhmm = (t) => (t ? String(t).slice(0, 5) : '');
 const minutesOf = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 const timeOfMs = (ms) => { const d = new Date(ms); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
@@ -683,7 +781,7 @@ function candChips(cands, prefix = '', chosen = '') {
 }
 
 // ---------- 상태 ----------
-const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true, mapShow: 'all', mapDay: '' };
+const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true, mapShow: 'all', mapDay: '', favs: new Set(), jq: { text: '', fav: false, mood: '', tag: '' } };
 let map;
 let markerLayer;
 
@@ -924,6 +1022,8 @@ async function enterApp(user) {
   try { const r = await sb.from('trips').select('country').limit(1); state.v007 = !r.error; } catch { state.v007 = false; }
   // DB 설정 008(일정 상태·동행자)이 있는지
   try { const r = await sb.from('itinerary_items').select('status').limit(1); state.v008 = !r.error; } catch { state.v008 = false; }
+  // DB 설정 009(기록 제목·감정·태그·즐겨찾기·위치 선택, 여러 스크랩북)가 있는지
+  try { const r = await sb.from('scrapbooks').select('id').limit(1); state.v009 = !r.error; } catch { state.v009 = false; }
   // 계정에 저장된 테마가 있으면 이 기기에도 적용 (다른 기기에서 바꾼 테마 따라가기)
   const savedTheme = user.user_metadata?.theme;
   if (savedTheme && usableTheme(savedTheme) && savedTheme !== currentTheme) applyTheme(savedTheme);
@@ -968,6 +1068,7 @@ async function refresh(fit = false) {
     if (state.filter !== 'all' && !state.trips.some((t) => t.id === state.filter)) state.filter = 'all';
     state.places = await db.places(state.filter);
     state.plans = await db.plans(state.filter);
+    await loadFavs();
   } catch (err) { toast(err.message); return; }
   renderFilter();
   renderMap(fit);
@@ -1000,7 +1101,7 @@ function renderMap(fit) {
   if (state.mapDay && !days.includes(state.mapDay)) state.mapDay = '';
   const show = planPts.length ? state.mapShow : 'all';
   const onDay = (d) => !state.mapDay || d === state.mapDay;
-  const all = [...state.places].sort(byVisit);
+  const all = state.places.filter((p) => p.lat != null).sort(byVisit); // 위치 없는 기록은 기록장에만
   const ordered = show === 'plan' ? [] : all.filter((p) => onDay(visitKey(p)));
   ordered.forEach((p) => {
     const th = p.photos[0]?.thumb;
@@ -1070,9 +1171,11 @@ function placeCard(p) {
     ${th ? `<img class="thumb" src="${esc(th)}" alt="" loading="lazy">` : `<div class="thumb">${catIcon(p.category)}</div>`}
     <div class="body">
       ${p.visited_time ? `<span class="tl-time">🕒 ${hhmm(p.visited_time)}</span>` : ''}
-      <b>${esc(p.name)}</b>
+      <b>${state.favs.has(p.id) ? '<span class="fav-on" aria-label="즐겨찾기">★</span> ' : ''}${esc(p.title || p.name)}${MOODS[p.mood] ? ` ${MOODS[p.mood][0]}` : ''}</b>
+      ${p.title ? `<span class="muted card-sub">📍 ${esc(p.name)}${p.lat == null ? ' · 위치 없음' : ''}</span>` : p.lat == null ? '<span class="muted card-sub">위치 없음</span>' : ''}
       ${plan ? `<span class="tl-linked">📋 계획: ${esc(planLabel(plan))}</span>` : ''}
       ${p.comment ? `<span class="comment">${esc(p.comment)}</span>` : ''}
+      ${tagsHtml(p.tags)}
       <small>${catLabel(p.category)} · ${esc(p.author)}${state.filter === 'all' ? ` · ${esc(p.trip_title)}` : ''}${p.photos.length > 1 ? ` · 사진 ${p.photos.length}` : ''}${p.comment_count ? ` · 💬 ${p.comment_count}` : ''}${p.memo ? ' · 📝' : ''}</small>
     </div>
   </button>`;
@@ -1092,18 +1195,77 @@ function renderJournal() {
       <small>오른쪽 아래 ＋ 버튼으로 다녀온 곳과 사진을 남겨 보세요</small></div>`;
     return;
   }
-  const entries = state.places.map((p) => ({ date: visitKey(p), time: hhmm(p.visited_time), id: p.id, p }));
+  // 검색 칸은 그대로 두고 목록만 다시 그려요 (입력 중 커서 유지)
+  if (!$('#jrList', el)) {
+    el.innerHTML = `${head}<div class="jr-bar">
+        <input type="search" id="jrSearch" placeholder="제목·장소·이야기·태그 검색" aria-label="기록 검색" enterkeyhint="search">
+        <div class="jr-chips" id="jrChips"></div>
+      </div><div id="jrList"></div>`;
+    $('#jrSearch', el).value = state.jq.text;
+  } else $('.section-head', el).outerHTML = head;
+  renderJournalChips();
+  renderJournalList();
+}
+function renderJournalChips() {
+  const box = $('#jrChips');
+  if (!box) return;
+  const q = state.jq;
+  const count = new Map();
+  for (const p of state.places) for (const tg of p.tags || []) count.set(tg, (count.get(tg) || 0) + 1);
+  const tags = [...count].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([tg]) => tg);
+  if (q.tag && !tags.includes(q.tag)) tags.unshift(q.tag);
+  const moods = Object.keys(MOODS).filter((m) => state.places.some((p) => p.mood === m));
+  box.innerHTML = state.v009 ? `
+    <button type="button" class="jr-chip ${q.fav ? 'on' : ''}" data-jf="fav" aria-pressed="${q.fav}">★ 즐겨찾기</button>
+    ${moods.map((m) => `<button type="button" class="jr-chip ${q.mood === m ? 'on' : ''}" data-jmood="${m}" aria-pressed="${q.mood === m}">${MOODS[m][0]} ${MOODS[m][1]}</button>`).join('')}
+    ${tags.map((tg) => `<button type="button" class="jr-chip ${q.tag === tg ? 'on' : ''}" data-jtag="${esc(tg)}" aria-pressed="${q.tag === tg}">#${esc(tg)}</button>`).join('')}` : '';
+}
+function renderJournalList() {
+  const box = $('#jrList');
+  if (!box) return;
+  const q = state.jq;
+  const words = q.text.toLowerCase().split(/\s+/).filter(Boolean);
+  const hay = (p) => [p.title, p.name, p.comment, p.memo, p.author, p.trip_title, ...(p.tags || []), MOODS[p.mood]?.[1]].filter(Boolean).join(' ').toLowerCase();
+  const list = state.places.filter((p) => (!q.fav || state.favs.has(p.id)) && (!q.mood || p.mood === q.mood)
+    && (!q.tag || p.tags?.includes(q.tag)) && words.every((w) => hay(p).includes(w)));
+  const filtered = words.length || q.fav || q.mood || q.tag;
+  if (!list.length) {
+    box.innerHTML = `<div class="empty small">찾는 기록이 없어요${filtered ? '<br><button type="button" class="chip-btn" data-jclear style="margin-top:10px">조건 지우기</button>' : ''}</div>`;
+    return;
+  }
+  const entries = list.map((p) => ({ date: visitKey(p), time: hhmm(p.visited_time), id: p.id, p }));
   entries.sort((a, b) => b.date.localeCompare(a.date)
     || (a.time ? 0 : 1) - (b.time ? 0 : 1) || a.time.localeCompare(b.time) || a.id - b.id);
-  let html = head;
+  let html = filtered ? `<div class="jr-count muted">${list.length}개 찾음 <button type="button" class="link" data-jclear>조건 지우기</button></div>` : '';
   let last = null;
   for (const x of entries) {
     if (x.date !== last) { html += `<h3 class="tl-date">${fmtDate(x.date)}</h3>`; last = x.date; }
     html += placeCard(x.p);
   }
-  el.innerHTML = html;
+  box.innerHTML = html;
 }
+$('#journal').addEventListener('input', (e) => {
+  if (e.target.id !== 'jrSearch') return;
+  state.jq.text = e.target.value;
+  renderJournalList();
+});
 $('#journal').onclick = (e) => {
+  const q = state.jq;
+  if (e.target.closest('[data-jclear]')) {
+    Object.assign(q, { text: '', fav: false, mood: '', tag: '' });
+    const inp = $('#jrSearch');
+    if (inp) inp.value = '';
+    renderJournalChips(); renderJournalList();
+    return;
+  }
+  const chip = e.target.closest('[data-jf], [data-jmood], [data-jtag]');
+  if (chip) {
+    if (chip.dataset.jf) q.fav = !q.fav;
+    if (chip.dataset.jmood) q.mood = q.mood === chip.dataset.jmood ? '' : chip.dataset.jmood;
+    if (chip.dataset.jtag != null) q.tag = q.tag === chip.dataset.jtag ? '' : chip.dataset.jtag;
+    renderJournalChips(); renderJournalList();
+    return;
+  }
   const c = e.target.closest('[data-place]');
   if (c) openPlace(Number(c.dataset.place));
 };
@@ -1293,9 +1455,12 @@ function openPlace(id) {
         <img src="${esc(ph.url)}" alt="" loading="lazy" data-full="${esc(ph.url)}">
         ${canEdit || ph.user_id === state.me.id ? `<button class="g-del" data-photo="${ph.id}" aria-label="사진 삭제">✕</button>` : ''}
       </div>`).join('')}</div>` : ''}
-    <span class="pd-cat">${catLabel(p.category)}</span>
-    <h2 class="pd-name">${esc(p.name)}</h2>
+    <div class="pd-top"><span class="pd-cat">${catLabel(p.category)}</span>
+      ${state.v009 ? `<button type="button" class="fav-btn ${state.favs.has(p.id) ? 'on' : ''}" data-act="fav" aria-pressed="${state.favs.has(p.id)}" aria-label="즐겨찾기">${state.favs.has(p.id) ? '★' : '☆'}</button>` : ''}</div>
+    <h2 class="pd-name">${esc(p.title || p.name)}${MOODS[p.mood] ? ` <span class="pd-mood" title="${MOODS[p.mood][1]}">${MOODS[p.mood][0]}</span>` : ''}</h2>
+    ${p.title ? `<div class="muted pd-place">📍 ${esc(p.name)}</div>` : ''}
     ${p.comment ? `<p class="pd-comment">${esc(p.comment)}</p>` : ''}
+    ${p.tags?.length || p.mood ? `<div class="pd-tags">${moodHtml(p.mood)}${tagsHtml(p.tags)}</div>` : ''}
     ${p.memo ? `<div class="pd-memo">${esc(p.memo)}</div>` : ''}
     <div class="pd-meta">
       <span>📅 ${fmtDate(visitKey(p))}${p.visited_time ? ` ${hhmm(p.visited_time)}` : ''}</span>
@@ -1304,7 +1469,7 @@ function openPlace(id) {
       <span>${kindIcon(trip?.kind)} ${esc(p.trip_title)}</span>
     </div>
     <div class="btn-row">
-      <button class="btn" data-act="locate">${ic('🗺️')} 지도에서 보기</button>
+      ${p.lat != null ? `<button class="btn" data-act="locate">${ic('🗺️')} 지도에서 보기</button>` : '<span class="muted small-note">📍 위치 없는 기록 (수정에서 위치를 정할 수 있어요)</span>'}
       <label class="btn">📷 사진 추가<input type="file" accept="image/*" multiple hidden></label>
       <button class="btn" data-act="to-plan">＋ 일정에 추가</button>
       ${canEdit ? '<button class="btn" data-act="edit">✏️ 수정</button><button class="btn danger" data-act="delete">삭제</button>' : ''}
@@ -1382,8 +1547,16 @@ function openPlace(id) {
       closeSheet();
       switchView('map');
       setTimeout(() => map.flyTo([p.lat, p.lng], Math.max(map.getZoom(), 15)), 50);
+    } else if (act === 'fav') {
+      try {
+        const on = await toggleFav(p.id);
+        const b = e.target.closest('[data-act=fav]');
+        b.classList.toggle('on', on); b.textContent = on ? '★' : '☆'; b.setAttribute('aria-pressed', String(on));
+        toast(on ? '즐겨찾기에 넣었어요' : '즐겨찾기에서 뺐어요');
+      } catch (err) { toast(err.message); }
     } else if (act === 'to-plan') {
-      window.Planner?.addAt(p.trip_id, { lat: p.lat, lng: p.lng, name: p.name, placeId: p.id });
+      if (p.lat == null) window.Planner?.addAt(p.trip_id, { name: p.name, placeId: p.id, noLoc: true });
+      else window.Planner?.addAt(p.trip_id, { lat: p.lat, lng: p.lng, name: p.name, placeId: p.id });
     } else if (act === 'edit') {
       openEditPlace(p);
     } else if (act === 'delete') {
@@ -1423,9 +1596,12 @@ function catPicker(selected) {
 function openEditPlace(p) {
   const body = openSheet(`<h2>기록 수정</h2>
     <form id="editForm">
+      ${journalFields(p)}
       <label class="field"><span>장소 이름</span><input name="name" required maxlength="60" value="${esc(p.name)}"></label>
+      ${state.v009 ? `<div class="field"><span>위치</span><div id="epLoc"></div><div id="epLocResults" class="results"></div></div>` : ''}
       <label class="field"><span>한줄 코멘트</span><input name="comment" maxlength="80" value="${esc(p.comment || '')}"></label>
       <label class="field"><span>이야기 (선택)</span><textarea name="memo" maxlength="2000" rows="4" placeholder="그날 있었던 일, 나눴던 이야기">${esc(p.memo || '')}</textarea></label>
+      ${diaryBox()}
       <div class="grid2">
         <label class="field"><span>날짜</span><input type="date" name="visited_at" value="${esc(p.visited_at || '')}"></label>
         <label class="field ${state.v005 ? '' : 'hidden'}"><span>시간</span><input type="time" name="visited_time" value="${hhmm(p.visited_time)}"></label>
@@ -1443,6 +1619,41 @@ function openEditPlace(p) {
   };
   plansOfTrip(p.trip_id).then((list) => { tripPlans = list; if (body.isConnected) fillPlans(); });
   ef.visited_at.onchange = fillPlans;
+  // 위치: 그대로 / 장소 이름으로 찾기 / 지우기 (009)
+  let loc = p.lat != null ? { lat: p.lat, lng: p.lng } : null;
+  const showLoc = () => {
+    const box = $('#epLoc', body);
+    if (!box) return;
+    box.innerHTML = `<div class="place-now">${loc ? `📍 <b>${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}</b>` : '<b>위치 없음</b> <small>지도에는 보이지 않아요</small>'}
+      <button type="button" class="link" data-loc="find">장소 이름으로 찾기</button>
+      ${loc ? '<button type="button" class="link" data-loc="clear">위치 지우기</button>' : ''}</div>`;
+  };
+  showLoc();
+  const locBox = $('#epLoc', body);
+  if (locBox) {
+    locBox.onclick = async (e) => {
+      const k = e.target.closest('[data-loc]')?.dataset.loc;
+      const res = $('#epLocResults', body);
+      if (k === 'clear') { loc = null; res.innerHTML = ''; showLoc(); return; }
+      if (k !== 'find') return;
+      res.innerHTML = '<div class="hint">찾는 중…</div>';
+      try {
+        const list = await geocode(ef.name.value.trim());
+        res.innerHTML = list.length ? list.map((r, i) => `<button type="button" data-li="${i}"><b>${esc(r.name)}</b><small>${esc(r.address || '')}</small></button>`).join('')
+          : '<div class="hint">찾지 못했어요. 장소 이름을 바꿔 보세요.</div>';
+        res.onclick = (ev) => {
+          const b = ev.target.closest('[data-li]');
+          if (!b) return;
+          const r = list[Number(b.dataset.li)];
+          loc = { lat: r.lat, lng: r.lng };
+          res.innerHTML = '';
+          showLoc();
+        };
+      } catch (err) { res.innerHTML = `<div class="hint">${esc(err.message)}</div>`; }
+    };
+  }
+  bindDiary(ef, () => ({ tripId: p.trip_id, name: p.name, date: ef.visited_at.value, time: ef.visited_time.value, category: ef.category.value,
+    plan: tripPlans.find((i) => i.id === Number(ef.plan_item_id.value))?.title, photoCount: p.photos.length }));
   ef.onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -1453,6 +1664,8 @@ function openEditPlace(p) {
         visited_at: f.visited_at.value || null, category: f.category.value,
         visited_time: f.visited_time.value || null,
         plan_item_id: f.plan_item_id.value ? Number(f.plan_item_id.value) : null,
+        ...readJournal(f),
+        ...(state.v009 ? { lat: loc?.lat ?? null, lng: loc?.lng ?? null } : {}),
       });
       if (f.plan_item_id.value && Number(f.plan_item_id.value) !== p.plan_item_id) await markPlanVisited(Number(f.plan_item_id.value));
       await refresh();
@@ -1867,6 +2080,7 @@ function openAddPlace(pre = {}) {
       <div class="field"><span>위치 <small id="posLabel">지도를 눌러 선택하세요</small></span>
         <div id="miniMap" class="mini-map"></div>
         <button type="button" class="link" id="myPosBtn">📍 지금 있는 위치 사용</button>
+        ${state.v009 ? '<label class="chk-line"><input type="checkbox" name="noloc"> 위치 없이 기록할래요 <small class="muted">(지도에는 안 보이고 기록장에만)</small></label>' : ''}
       </div>
       <div class="grid2">
         <label class="field"><span>날짜</span><input type="date" name="visited_at" value="${pre.date || today()}"></label>
@@ -1874,8 +2088,10 @@ function openAddPlace(pre = {}) {
       </div>
       <div class="field hidden" id="apPlanField"><span>여행 계획과 연결</span><select name="plan_item_id"></select><small class="hint" id="apPlanHint"></small></div>
       <div class="field"><span>종류</span>${catPicker('sight')}</div>
+      ${journalFields()}
       <label class="field"><span>한줄 코멘트 <small id="cnt">0/80</small></span><input name="comment" maxlength="80" placeholder="이곳에서의 한마디"></label>
       <label class="field"><span>이야기 (선택)</span><textarea name="memo" maxlength="2000" rows="3" placeholder="그날 있었던 일, 나눴던 이야기를 길게 남겨도 돼요"></textarea></label>
+      ${diaryBox()}
       <button class="primary" type="submit" id="saveBtn">기록 남기기</button>
     </form>`, () => {
     mini?.remove();
@@ -1966,6 +2182,8 @@ function openAddPlace(pre = {}) {
   }
   form.addEventListener('change', (e) => { if (e.target.name === 'category') catTouched = true; });
   if (pre.category) { setCategory(pre.category); catTouched = true; }
+  bindDiary(form, () => ({ tripId: Number(form.trip.value), date: form.visited_at.value, time: form.visited_time.value, category: form.category.value,
+    plan: apPlans.find((i) => i.id === Number(form.plan_item_id.value))?.title, photoCount: pending.length }));
   $('#nearby', body).onclick = (e) => {
     const b = e.target.closest('[data-cand]');
     if (!b) return;
@@ -2087,7 +2305,8 @@ function openAddPlace(pre = {}) {
     e.preventDefault();
     const name = form.name.value.trim();
     if (!name) return toast('장소 이름을 입력해 주세요');
-    if (!pos) return toast('지도를 눌러 위치를 정해 주세요');
+    const noLoc = !!form.noloc?.checked;
+    if (!pos && !noLoc) return toast(state.v009 ? '지도를 눌러 위치를 정하거나 "위치 없이 기록"을 골라 주세요' : '지도를 눌러 위치를 정해 주세요');
     const btn = $('#saveBtn', body);
     if (btn.disabled || processing) return;
     btn.disabled = true;
@@ -2095,7 +2314,8 @@ function openAddPlace(pre = {}) {
     try {
       const tripId = Number(form.trip.value);
       const r = await db.createPlace(tripId, {
-        name, lat: pos.lat, lng: pos.lng,
+        name, lat: noLoc ? null : pos.lat, lng: noLoc ? null : pos.lng,
+        ...readJournal(form),
         visited_at: form.visited_at.value || null,
         category: form.category.value,
         comment: form.comment.value.trim() || null,
@@ -2113,7 +2333,8 @@ function openAddPlace(pre = {}) {
       await refresh();
       switchView('map');
       const p = state.places.find((x) => x.id === id);
-      if (p) setTimeout(() => map.flyTo([p.lat, p.lng], Math.max(map.getZoom(), 14)), 50);
+      if (p?.lat == null) switchView('journal');
+      else setTimeout(() => map.flyTo([p.lat, p.lng], Math.max(map.getZoom(), 14)), 50);
     } catch (err) {
       toast(err.message);
       btn.disabled = false;

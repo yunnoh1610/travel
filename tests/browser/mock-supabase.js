@@ -35,7 +35,16 @@
     checklist_items: [],
     scrapbook_pages: [],
     scrapbook_elements: [],
+    scrapbooks: [],
+    place_favorites: [],
   };
+  // DB 설정 009: 기록 제목·감정·태그·즐겨찾기, 여러 스크랩북 (?no009 이면 그 전 DB)
+  if (/no009/.test(location.search)) { delete db.scrapbooks; delete db.place_favorites; } else {
+    Object.assign(db.places[0], { title: '성곽 위 첫 산책', mood: 'HAPPY', tags: ['산책', '역사'] });
+    Object.assign(db.places[1], { mood: 'YUMMY', tags: ['맛집'], memo: '줄 서서 먹은 국밥. 다들 한 그릇씩 더 먹었다.' });
+    db.places.push({ id: 4, trip_id: 1, user_id: 'u-a', name: '숙소', lat: null, lng: null, visited_at: '2026-11-21', visited_time: '21:00:00', plan_item_id: null, title: '비 오는 밤', comment: '창밖 빗소리', memo: null, mood: 'CALM', tags: ['휴식'], category: 'stay', created_at: now() });
+    db.place_favorites.push({ user_id: 'u-a', place_id: 1 });
+  }
   const seq = {};
   const nextId = (t) => { seq[t] = Math.max(seq[t] || 0, ...db[t].map((r) => (typeof r.id === 'number' ? r.id : 0))) + 1; return seq[t]; };
   const plan = (tid) => { let p = db.trip_plans.find((x) => x.trip_id === tid); if (!p) { p = { trip_id: tid, revision: 0, prefs: {} }; db.trip_plans.push(p); } return p; };
@@ -109,6 +118,10 @@
       if (window.MOCK.no007 && src === 'trips' && (new007.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new007.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new007.test(k))))) {
         return err('column trips.country does not exist', '42703');
       }
+      const new009 = /(^|,\s*)title\b|\bmood\b|\btags\b/; // trips(title) 처럼 다른 표의 칸은 빼고
+      if (window.MOCK.no009 && src === 'places' && (new009.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new009.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new009.test(k))))) {
+        return err('column places.title does not exist', '42703');
+      }
       const new008 = /\bstatus\b|assignees/;
       if (window.MOCK.no008 && src === 'itinerary_items' && (new008.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new008.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new008.test(k))))) {
         return err('column itinerary_items.status does not exist', '42703');
@@ -129,6 +142,12 @@
           }
           if (src === 'trip_expenses' && r.amount < 0) return err('violates check constraint', '23514');
           if (src === 'checklist_items') r.checked ??= false;
+          if (src === 'place_favorites') r.user_id ??= ME.id;
+          if (src === 'scrapbook_pages' && db.scrapbooks && !r.scrapbook_id) {
+            let b = db.scrapbooks.filter((x) => x.trip_id === r.trip_id).sort((a, c) => a.sort_order - c.sort_order || a.id - c.id)[0];
+            if (!b) { b = { id: nextId('scrapbooks'), trip_id: r.trip_id, title: '기본 스크랩북', sort_order: 0, created_by: ME.id, created_at: now() }; db.scrapbooks.push(b); }
+            r.scrapbook_id = b.id;
+          }
           if (src === 'places' || src === 'photos') r.user_id ??= ME.id;
           if (src === 'scrapbook_pages') Object.assign(r, { revision: 0, template: 'BLANK', background: 'paper', ...r });
           if (src === 'trips') { db.trip_members.push({ trip_id: r.id, user_id: ME.id }); r.owner_id = ME.id; }
@@ -148,6 +167,7 @@
         for (const r of out) {
           if (src === 'itinerary_items') bump(r.trip_id);
           if (src === 'scrapbook_pages') db.scrapbook_elements = db.scrapbook_elements.filter((e) => e.page_id !== r.id);
+          if (src === 'scrapbooks') db.scrapbook_pages = db.scrapbook_pages.filter((x) => x.scrapbook_id !== r.id);
           if (src === 'trips') ['places', 'itinerary_items', 'scrapbook_pages', 'checklist_items', 'trip_expenses'].forEach((k) => { db[k] = db[k].filter((x) => x.trip_id !== r.id); });
         }
       } else {
@@ -297,6 +317,13 @@
         await new Promise((r) => setTimeout(r, 1200));
         const fail = (status, payload) => ({ data: null, error: Object.assign(new Error('Edge Function returned a non-2xx status code'), { name: 'FunctionsHttpError', context: { status, json: async () => payload } }) });
         if (window.MOCK.failAI) return fail(502, { error: { code: 'AI_UNAVAILABLE', message: 'AI가 응답하지 못했어요. 잠시 후 다시 시도해 주세요', requestId: 'req-mock-1' } });
+        if (body.action === 'diary') {
+          const f = body.facts || {};
+          if (!f.comment && !f.memo && !f.tags?.length && !f.mood) return fail(400, { error: { code: 'VALIDATION_ERROR', message: '한줄 코멘트·이야기·기분·태그 중 하나는 적어 주세요' } });
+          const short = body.tone === 'SHORT';
+          const story = [`${f.date || '그날'} ${f.place || ''}에 갔다.`, f.comment ? `${f.comment}.` : '', f.memo || '', f.mood ? `기분은 ${f.mood}.` : '', short ? '' : '다음에 또 오고 싶다.'].filter(Boolean).join(' ');
+          return { data: { title: f.title || `${f.place} 이야기`, story, warnings: ['AI가 정리한 글이에요. 사실과 다른 부분이 없는지 확인해 주세요'], model: 'mock', requestId: 'req-mock' }, error: null };
+        }
         const res = body.action === 'generate' ? aiGenerate(body) : aiRevise(body);
         if (res.error) return fail(res.status, { error: { ...res.error, requestId: 'req-mock-2' } });
         return { data: { ...res, requestId: 'req-mock' }, error: null };
@@ -317,7 +344,7 @@
       async signInWithPassword() { return { data: { session: { user: ME } }, error: null }; },
     },
   };
-  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), no007: /no007/.test(location.search), no008: /no008/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
+  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), no007: /no007/.test(location.search), no008: /no008/.test(location.search), no009: /no009/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
   window.supabase = { createClient: () => client };
   window.TRAVEL_CONFIG = { url: 'https://mock.local', key: 'mock' };
 })();

@@ -59,6 +59,8 @@ before(async () => {
   await db.exec(sql('migrate-007-trip-info.sql'));
   await db.exec(sql('migrate-008-plan-status.sql'));
   await db.exec(sql('migrate-008-plan-status.sql'));
+  await db.exec(sql('migrate-009-journal-scrapbooks.sql'));
+  await db.exec(sql('migrate-009-journal-scrapbooks.sql'));
 
   for (const [id, name] of [[A, 'aa'], [B, 'bb'], [C, 'cc']]) {
     await db.query("insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, jsonb_build_object('name', $3::text))",
@@ -300,10 +302,64 @@ test('008: 일정 상태(예정/완료/취소)·동행자(여행 멤버만)', as
   assert.equal((await rows(B, 'select start_time from itinerary_items where id = $1', [it.id]))[0].start_time, '19:00:00');
 });
 
+test('009: 기록 제목·감정·태그, 위치 없는 기록, 즐겨찾기는 사람마다', async () => {
+  const p = (await rows(B, "insert into places (trip_id, name, title, mood, tags) values ($1, '숙소', '비 오는 날', 'CALM', $2) returning id, lat", [trip, ['비', '휴식']]))[0];
+  assert.equal(p.lat, null, '위치 없이 기록 가능');
+  await fails(B, "insert into places (trip_id, name, lat) values ($1, 'x', 36.4)", [trip], /places_latlng_pair/);
+  await fails(B, "update places set mood = 'ANGRY' where id = $1", [p.id], /check constraint/);
+  await fails(B, 'update places set tags = $1 where id = $2', [Array.from({ length: 11 }, (_, i) => `t${i}`), p.id], /places_tags_check/);
+  await fails(B, 'update places set tags = $1 where id = $2', [['가'.repeat(21)], p.id], /places_tags_check/);
+  assert.equal((await rows(B, "update places set title = '빗소리', tags = $1, lat = 36.45, lng = 127.1 where id = $2 returning title", [['비'], p.id]))[0].title, '빗소리');
+  // 즐겨찾기: 멤버만 · 내 것만 보임
+  await rows(A, 'insert into place_favorites (place_id) values ($1)', [p.id]);
+  assert.equal((await rows(A, 'select 1 from place_favorites')).length, 1);
+  assert.equal((await rows(B, 'select 1 from place_favorites')).length, 0, '남의 즐겨찾기는 안 보임');
+  await fails(C, 'insert into place_favorites (place_id) values ($1)', [p.id], /row-level security/);
+  await fails(B, 'insert into place_favorites (user_id, place_id) values ($1, $2)', [A, p.id], /row-level security|duplicate/);
+  assert.equal((await rows(B, 'delete from place_favorites where place_id = $1 returning 1', [p.id])).length, 0, '남의 즐겨찾기는 못 지움');
+});
+
+test('009: 여러 스크랩북 — 페이지는 스크랩북에 속하고, 다른 여행 스크랩북은 거부', async () => {
+  const pg = (await rows(B, "insert into scrapbook_pages (trip_id, title) values ($1, '첫 장') returning scrapbook_id", [trip]))[0];
+  assert.ok(pg.scrapbook_id, '스크랩북을 안 정하면 기본 스크랩북으로');
+  assert.equal((await rows(B, 'select title from scrapbooks where id = $1', [pg.scrapbook_id]))[0].title, '기본 스크랩북');
+  const bk = (await rows(A, "insert into scrapbooks (trip_id, title, sort_order) values ($1, '맛집 앨범', 1) returning id", [trip]))[0];
+  const p2 = (await rows(B, "insert into scrapbook_pages (trip_id, title, scrapbook_id, template) values ($1, '국밥', $2, 'FILM') returning scrapbook_id", [trip, bk.id]))[0];
+  assert.equal(p2.scrapbook_id, bk.id);
+  const ob = (await rows(C, "insert into scrapbooks (trip_id, title) values ($1, '남의 책') returning id", [otherTrip]))[0];
+  await fails(B, "insert into scrapbook_pages (trip_id, title, scrapbook_id) values ($1, 'x', $2)", [trip, ob.id], /같은 여행의 스크랩북/);
+  await fails(C, "insert into scrapbooks (trip_id, title) values ($1, 'x')", [trip], /row-level security/);
+  assert.equal((await rows(C, 'select 1 from scrapbooks where trip_id = $1', [trip])).length, 0);
+  await fails(A, 'update scrapbooks set trip_id = $1 where id = $2', [otherTrip, bk.id], /permission denied/);
+  // 스크랩북을 지우면 그 페이지도 함께
+  await rows(A, 'delete from scrapbooks where id = $1', [bk.id]);
+  assert.equal((await rows(A, "select 1 from scrapbook_pages where title = '국밥'")).length, 0);
+});
+
+test('009: 기존 페이지는 여행마다 기본 스크랩북으로 옮겨짐', async () => {
+  const x = new PGlite();
+  await x.exec(SUPABASE_STUB);
+  for (const f of ['schema.sql', 'migrate-002-username.sql', 'migrate-003-memories.sql', 'migrate-004-planner-scrapbook.sql',
+    'migrate-005-record-time-plan-link.sql', 'migrate-006-scrapbook-design.sql', 'migrate-007-trip-info.sql', 'migrate-008-plan-status.sql']) await x.exec(sql(f));
+  await x.query("insert into auth.users (id, email, raw_user_meta_data) values ($1, 'aa@travel-diary.example.com', '{\"name\":\"aa\"}')", [A]);
+  await x.exec(`set role authenticated; set request.jwt.claim.sub = '${A}'`);
+  const t = (await x.query("insert into trips (title) values ('옛 여행') returning id")).rows[0].id;
+  await x.query("insert into scrapbook_pages (trip_id, title) values ($1, '1쪽'), ($1, '2쪽')", [t]);
+  await x.exec("reset role; set request.jwt.claim.sub = ''");
+  await x.exec(sql('migrate-009-journal-scrapbooks.sql'));
+  await x.exec(sql('migrate-009-journal-scrapbooks.sql'));
+  const books = (await x.query('select id, title, created_by from scrapbooks where trip_id = $1', [t])).rows;
+  assert.equal(books.length, 1, '두 번 실행해도 하나');
+  assert.equal(books[0].created_by, A);
+  const pages = (await x.query('select scrapbook_id from scrapbook_pages where trip_id = $1', [t])).rows;
+  assert.ok(pages.every((p) => p.scrapbook_id === books[0].id));
+  await x.close();
+});
+
 test('멤버가 나가면 새 자료도 못 봄 (TC-15)', async () => {
   assert.ok((await rows(B, 'select id from itinerary_items where trip_id = $1', [trip])).length > 0);
   await rows(B, 'delete from trip_members where trip_id = $1 and user_id = $2', [trip, B]);
-  for (const t of ['itinerary_items', 'trip_expenses', 'checklist_items', 'scrapbook_pages', 'scrapbook_elements', 'trip_plans']) {
+  for (const t of ['itinerary_items', 'trip_expenses', 'checklist_items', 'scrapbook_pages', 'scrapbook_elements', 'trip_plans', 'scrapbooks']) {
     assert.equal((await rows(B, `select 1 from ${t} where trip_id = $1`, [trip])).length, 0, t);
   }
   await rows(A, 'select * from add_member_by_username($1, $2)', [trip, 'bb']);
@@ -321,7 +377,7 @@ test('되돌리기 SQL 이 기존 테이블을 남기고 새 테이블만 지움
   await x.exec(SUPABASE_STUB);
   for (const f of ['schema.sql', 'migrate-002-username.sql', 'migrate-003-memories.sql', 'migrate-004-planner-scrapbook.sql',
     'migrate-005-record-time-plan-link.sql', 'migrate-006-scrapbook-design.sql', 'migrate-007-trip-info.sql', 'migrate-008-plan-status.sql',
-    'rollback-008-plan-status.sql', 'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
+    'migrate-009-journal-scrapbooks.sql', 'rollback-009-journal-scrapbooks.sql', 'rollback-008-plan-status.sql', 'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
     'rollback-005-record-time-plan-link.sql', 'rollback-004-planner-scrapbook.sql']) {
     await x.exec(sql(f));
   }

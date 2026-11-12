@@ -15,8 +15,12 @@
     POLAROID: ['🖼️', '폴라로이드', '그날 사진을 폴라로이드로'],
     COLLAGE: ['🧩', '사진 콜라주', '사진 5장을 꽉 차게'],
     GRID: ['🔲', '사진 4칸', '사진 4장을 바둑판으로'],
+    FILM: ['🎞️', '필름 카메라', '필름 띠 안에 사진 3장'],
+    TICKET: ['🎫', '여행 티켓', '여행 티켓 + 큰 사진 + 그날 한마디'],
+    MINIMAL: ['⬜', '미니멀 앨범', '사진 한 장과 제목만 깔끔하게'],
   };
-  const TEMPLATE_BG = { DIARY: 'lined', COLLAGE: 'white' }; // 템플릿에 어울리는 기본 배경
+  const NEW_TEMPLATES = ['FILM', 'TICKET', 'MINIMAL']; // DB 설정 009 이 있어야 저장돼요
+  const TEMPLATE_BG = { DIARY: 'lined', COLLAGE: 'white', FILM: 'night', TICKET: 'kraft', MINIMAL: 'white' }; // 템플릿에 어울리는 기본 배경
   // 배경: 질감 · 패턴 · 단색 (DB 설정 006 이 있어야 새 배경·템플릿을 저장할 수 있어요)
   const BG_GROUPS = [
     ['질감', { paper: '종이', kraft: '크라프트', linen: '린넨' }],
@@ -34,12 +38,12 @@
   const TEXT_BGS = { none: ['없음', ''], white: ['흰색', '#ffffff'], cream: ['크림', '#fbf6ea'], lilac: ['라벤더', '#e6e0f5'],
     mint: ['민트', '#d9f0e6'], pink: ['분홍', '#fbe0e6'], yellow: ['노랑', '#fff3b0'], dark: ['검정', '#2d2a26'] };
   const textPad = (size) => ({ x: size * 0.3, y: size * 0.15, r: size * 0.3 });
-  const DECO_SHAPES = ['stamp', 'ticket', 'label'];
+  const DECO_SHAPES = ['stamp', 'ticket', 'label', 'memo', 'film'];
   const TAPES = ['#f7c8d0', '#c9e4f6', '#fff1a1', '#cdeccf', '#e2cbff'];
   const COLORS = ['#2d2a26', '#6E5FAE', '#c2410c', '#1f5378', '#0f766e', '#ffffff'];
   const MAX_HISTORY = 40;
 
-  const S = { tripId: null, loadedFor: null, loading: false, error: null, pages: [], els: new Map() };
+  const S = { tripId: null, loadedFor: null, loading: false, error: null, pages: [], allPages: [], books: [], bookId: null, els: new Map() };
   const shared = () => window.PlannerShared;
   const root = () => $('#scrapbook');
   const trip = () => state.trips.find((t) => t.id === S.tripId);
@@ -77,13 +81,16 @@
     render();
     try {
       const { pq } = shared();
-      const [pages, els] = await Promise.all([
+      const [pages, els, books] = await Promise.all([
         pq(sb.from('scrapbook_pages').select('*').eq('trip_id', id).order('page_order').order('id')),
         pq(sb.from('scrapbook_elements').select('*').eq('trip_id', id)),
+        state.v009 ? pq(sb.from('scrapbooks').select('*').eq('trip_id', id).order('sort_order').order('id')) : [],
       ]);
       if (S.tripId !== id) return;
       await signPaths(els.map((e) => e.asset_path));
-      S.pages = pages;
+      S.allPages = pages;
+      S.books = books;
+      pickBook();
       S.els = new Map(pages.map((p) => [p.id, []]));
       for (const e of els) S.els.get(e.page_id)?.push(toEl(e));
       S.loadedFor = id;
@@ -94,6 +101,87 @@
       S.loading = false;
     }
     render();
+  }
+
+  // ---------- 여러 스크랩북 (DB 설정 009) ----------
+  const bookKey = () => `sbBook:${S.tripId}`;
+  /** 고른 스크랩북의 페이지만 S.pages 로 (009 전이면 전부) */
+  function pickBook(id) {
+    if (!S.books.length) { S.bookId = null; S.pages = S.allPages; return; }
+    let want = id ?? Number(localStorage.getItem(bookKey()));
+    if (!S.books.some((b) => b.id === want)) want = S.books[0].id;
+    S.bookId = want;
+    try { localStorage.setItem(bookKey(), String(want)); } catch { /* 저장 불가 */ }
+    S.pages = S.allPages.filter((p) => p.scrapbook_id === want);
+  }
+  const book = () => S.books.find((b) => b.id === S.bookId);
+  const bookField = () => (S.bookId ? { scrapbook_id: S.bookId } : {});
+  function booksHtml() {
+    if (!state.v009) return '';
+    return `<div class="sb-books" role="tablist" aria-label="스크랩북">
+      ${S.books.map((b) => `<button type="button" role="tab" class="sb-book ${b.id === S.bookId ? 'on' : ''}" aria-selected="${b.id === S.bookId}" data-book="${b.id}">📔 ${esc(b.title)}
+        <small>${S.allPages.filter((p) => p.scrapbook_id === b.id).length}</small></button>`).join('')}
+      <button type="button" class="sb-book add" data-act="new-book" aria-label="새 스크랩북">＋ 새 스크랩북</button>
+      ${book() ? '<button type="button" class="icon-btn ghost" data-act="book-menu" aria-label="스크랩북 이름 바꾸기·삭제">⋯</button>' : ''}
+    </div>`;
+  }
+  function openBookForm(b) {
+    const body = openSheet(`<h2>${b ? '스크랩북 이름 바꾸기' : '새 스크랩북'}</h2>
+      <form id="bkForm" autocomplete="off">
+        <label class="field"><span>이름 <small>40자</small></span><input name="title" maxlength="40" required value="${esc(b?.title || '')}" placeholder="예: 맛집 앨범, 둘째 날, 가족 사진"></label>
+        <button class="primary" type="submit">${b ? '저장' : '만들기'}</button>
+      </form>`);
+    const f = $('#bkForm', body);
+    f.title.focus();
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const title = f.title.value.trim();
+      if (!title) return;
+      const btn = $('button[type=submit]', f);
+      btn.disabled = true;
+      const { pq } = shared();
+      try {
+        if (b) {
+          const rows = await pq(sb.from('scrapbooks').update({ title }).eq('id', b.id).select('id'));
+          if (!rows.length) throw new Error('권한이 없거나 이미 지워진 스크랩북이에요');
+        } else {
+          const order = S.books.reduce((m, x) => Math.max(m, x.sort_order), 0) + 1;
+          const [nb] = await pq(sb.from('scrapbooks').insert({ trip_id: S.tripId, title, sort_order: order }).select());
+          try { localStorage.setItem(bookKey(), String(nb.id)); } catch { /* 저장 불가 */ }
+        }
+        closeSheet();
+        await load(true);
+        toast(b ? '이름을 바꿨어요' : `'${title}' 스크랩북을 만들었어요`);
+      } catch (err) { toast(err.message === 'NEEDS_MIGRATION' ? 'DB 설정(migrate-009)이 먼저 필요해요' : err.message); btn.disabled = false; }
+    };
+  }
+  function bookMenu() {
+    const b = book();
+    if (!b) return;
+    const body = openSheet(`<h2>📔 ${esc(b.title)}</h2>
+      <div class="choice-list">
+        <button class="choice" data-bm="rename"><span class="ic">✏️</span><span><b>이름 바꾸기</b></span></button>
+        <button class="choice" data-bm="del"><span class="ic">🗑</span><span><b style="color:var(--danger)">스크랩북 삭제</b><small>안의 페이지 ${S.pages.length}장도 함께 지워져요. 원래 사진 기록은 그대로예요</small></span></button>
+      </div>`);
+    body.onclick = async (ev) => {
+      const a = ev.target.closest('[data-bm]')?.dataset.bm;
+      if (a === 'rename') openBookForm(b);
+      if (a !== 'del') return;
+      if (!confirm(`'${b.title}' 스크랩북과 페이지 ${S.pages.length}장을 삭제할까요? 되돌릴 수 없어요.`)) return;
+      const ids = new Set(S.pages.map((p) => p.id));
+      const assets = S.pages.flatMap((p) => (S.els.get(p.id) || []).map((e) => e.assetPath)).filter(Boolean);
+      try {
+        const rows = await shared().pq(sb.from('scrapbooks').delete().eq('id', b.id).select('id'));
+        if (!rows.length) throw new Error('권한이 없거나 이미 지워진 스크랩북이에요');
+        const used = new Set([...S.els].filter(([id]) => !ids.has(id)).flatMap(([, els]) => els.map((e) => e.assetPath)));
+        await removeFiles(assets.filter((a2) => !used.has(a2))).catch(() => {});
+        ids.forEach((id) => localStorage.removeItem(`sbDraft:${id}`));
+        localStorage.removeItem(bookKey());
+        closeSheet();
+        await load(true);
+        toast('스크랩북을 삭제했어요');
+      } catch (err) { toast(err.message); }
+    };
   }
 
   // ---------- 요소 그리기 (목록 미리보기·편집기 공통) ----------
@@ -166,7 +254,8 @@
     const t = trip();
     if (!t) { r.innerHTML = '<div class="empty">여행을 찾을 수 없어요</div>'; return; }
     const head = `<div class="section-head"><h2>📔 ${esc(t.title)}</h2>
-      <div class="sb-head-btns">${S.pages.length ? '<button class="chip-btn" data-act="story" aria-label="스토리로 보기">▶ 스토리</button>' : ''}<button class="chip-btn" data-act="new-page">＋ 새 페이지</button></div></div>`;
+      <div class="sb-head-btns">${S.pages.length ? '<button class="chip-btn" data-act="story" aria-label="스토리로 보기">▶ 스토리</button>' : ''}<button class="chip-btn" data-act="new-page">＋ 새 페이지</button></div></div>
+      ${S.loading || S.error ? '' : booksHtml()}`;
     if (S.loading) { r.innerHTML = `${head}<div class="empty"><div class="spinner"></div>불러오는 중…</div>`; return; }
     if (S.error) {
       r.innerHTML = head + (S.error.code === 'NEEDS_MIGRATION'
@@ -184,7 +273,7 @@
           <button class="icon-btn" data-pmenu aria-label="페이지 메뉴" aria-haspopup="dialog">⋯</button>
         </div>
       </div>`).join('')}</div>`
-      : `<div class="empty"><div class="big">📔</div>아직 스크랩북 페이지가 없어요<br><small>여행 사진으로 하루 한 장씩 꾸며 보세요</small></div>`);
+      : `<div class="empty"><div class="big">📔</div>${book() ? `'${esc(book().title)}'에 아직 페이지가 없어요` : '아직 스크랩북 페이지가 없어요'}<br><small>여행 사진으로 하루 한 장씩 꾸며 보세요</small></div>`);
     hydrate(r, [...S.els.values()].flat());
     fitThumbs();
   }
@@ -202,6 +291,10 @@
       if (pick) { state.filter = Number(pick.dataset.pickTrip); refresh(true); return; }
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act === 'new-page') return openNewPage();
+      if (act === 'new-book') return openBookForm(null);
+      if (act === 'book-menu') return bookMenu();
+      const bk = e.target.closest('[data-book]');
+      if (bk) { pickBook(Number(bk.dataset.book)); render(); return; }
       if (act === 'story') return openStory(0);
       if (act === 'reload') return load(true);
       if (act === 'new-trip') return openTripForm();
@@ -245,7 +338,7 @@
       const order = S.pages.reduce((m, p) => Math.max(m, p.page_order), 0) + 1;
       const [np] = await pq(sb.from('scrapbook_pages').insert({
         trip_id: S.tripId, title: `${page.title || ''} 복사`.trim().slice(0, 40), page_date: page.page_date,
-        template: page.template, background: page.background, page_order: order,
+        template: page.template, background: page.background, page_order: order, ...(page.scrapbook_id ? { scrapbook_id: page.scrapbook_id } : {}),
       }).select());
       const els = (S.els.get(page.id) || []).map((e) => ({ ...toRow(e), id: uuid() }));
       if (els.length) await pq(sb.rpc('save_scrapbook_page', { p_page_id: np.id, p_expected_revision: np.revision, p_elements: els }));
@@ -287,9 +380,9 @@
   // ---------- 새 페이지 (템플릿) ----------
   function openNewPage() {
     const days = shared().tripDays(trip());
-    const body = openSheet(`<h2>새 스크랩북 페이지</h2>
+    const body = openSheet(`<h2>새 스크랩북 페이지</h2>${book() ? `<p class="muted" style="margin-top:-6px">📔 ${esc(book().title)}에 넣어요</p>` : ''}
       <form id="npForm">
-        <div class="choice-list sb-tpls">${Object.entries(TEMPLATES).map(([k, [ic2, name, desc]], i) => `<label class="choice">
+        <div class="choice-list sb-tpls">${Object.entries(TEMPLATES).filter(([k]) => state.v009 || !NEW_TEMPLATES.includes(k)).map(([k, [ic2, name, desc]], i) => `<label class="choice">
           <input type="radio" name="template" value="${k}" ${i === 1 ? 'checked' : ''}><span class="ic">${ic2}</span><span><b>${name}</b><small>${desc}</small></span></label>`).join('')}</div>
         <div class="grid2" style="margin-top:12px">
           <label class="field"><span>날짜</span><select name="date"><option value="">없음</option>${days.map((d, i) => `<option value="${d}" ${i === 0 ? 'selected' : ''}>${i + 1}일차 ${shared().short(d)}</option>`).join('')}</select></label>
@@ -316,7 +409,7 @@
         const { pq } = shared();
         const order = S.pages.reduce((m, p) => Math.max(m, p.page_order), 0) + 1;
         const [page] = await pq(sb.from('scrapbook_pages').insert({
-          trip_id: S.tripId, title, page_date: date, template: tpl, background: f.bg.value, page_order: order,
+          trip_id: S.tripId, title, page_date: date, template: tpl, background: f.bg.value, page_order: order, ...bookField(),
         }).select());
         const els = await templateElements(tpl, date, title);
         if (els.length) {
@@ -327,7 +420,7 @@
         await load(true);
         openEditor(S.pages.find((p) => p.id === page.id) || page);
       } catch (err) {
-        toast(/check constraint|입력한 내용/.test(err.message) ? '새 배경·템플릿을 쓰려면 DB 설정(migrate-006)이 먼저 필요해요' : err.message);
+        toast(/check constraint|입력한 내용/.test(err.message) ? `새 배경·템플릿을 쓰려면 DB 설정(${NEW_TEMPLATES.includes(tpl) ? 'migrate-009' : 'migrate-006'})이 먼저 필요해요` : err.message);
         btn.disabled = false;
       }
     };
@@ -356,6 +449,21 @@
   }
   function tripTicket(t, x, y) {
     return { type: 'STICKER', x, y, width: 440, height: 170, content: { shape: 'ticket', text: t?.title || '여행', sub: fmtRange(t?.start_date, t?.end_date), color: '#fde2c8' } };
+  }
+  // 손글씨 메모지 (글은 사본)
+  function memoNote(text, x, y, w = 420, h = 320) {
+    return { type: 'STICKER', x, y, width: w, height: h, content: { shape: 'memo', text: String(text || '').slice(0, 160), color: '#fff3b0' } };
+  }
+  // 이 여행의 기록 (날짜가 있으면 그날 먼저)
+  function dayRecords(date) {
+    const list = state.places.filter((x) => x.trip_id === S.tripId);
+    return date ? [...list.filter((x) => visitKey(x) === date), ...list.filter((x) => visitKey(x) !== date)] : list;
+  }
+  /** 기록 글을 스크랩북에 넣을 글로 (사본 — 기록을 고쳐도 스크랩북 글은 그대로) */
+  function recordText(p, max = 300) {
+    const head = p.title || p.name;
+    const body = [p.comment, p.memo].filter(Boolean).join('\n');
+    return (body ? `${head}\n${body}` : head).slice(0, max);
   }
 
   async function templateElements(tpl, date, title) {
@@ -402,6 +510,21 @@
       ps.forEach((ph, i) => out.push({ id: uuid(), type: 'IMAGE', x: cells[i][0], y: cells[i][1], width: cells[i][2], height: cells[i][3], rotation: 0, zIndex: z++, photoId: ph.id, content: { frame: 'none', alt: ph.placeName } }));
       out.push({ id: uuid(), type: 'STICKER', ...placeLabel(title, 50, 500), rotation: -2, zIndex: z++ });
       if (date) out.push({ id: uuid(), type: 'STICKER', ...dateStamp(date, 780, 420, 170), rotation: 10, zIndex: z++ });
+    } else if (tpl === 'FILM') {
+      text(title, 60, 40, 880, 90, 60, { color: '#ffffff', align: 'center' });
+      out.push({ id: uuid(), type: 'STICKER', x: 190, y: 150, width: 620, height: 1200, rotation: 0, zIndex: z++, content: { shape: 'film' } });
+      pick.slice(0, 3).forEach((ph, i) => out.push({ id: uuid(), type: 'IMAGE', x: 255, y: 205 + i * 380, width: 490, height: 330, rotation: 0, zIndex: z++, photoId: ph.id, content: { frame: 'none', alt: ph.placeName } }));
+    } else if (tpl === 'TICKET') {
+      out.push({ id: uuid(), type: 'STICKER', ...tripTicket(trip(), 80, 60), width: 840, height: 300, rotation: -2, zIndex: z++ });
+      if (pick[0]) await image(pick[0], 110, 420, 780, 2, 'tape', 560);
+      if (date) out.push({ id: uuid(), type: 'STICKER', ...dateStamp(date, 740, 900, 190), rotation: -12, zIndex: z++ });
+      const rec = dayRecords(date)[0];
+      if (rec) out.push({ id: uuid(), type: 'STICKER', ...memoNote(recordText(rec, 120), 110, 1030), rotation: -3, zIndex: z++ });
+      else if (pick[0]) out.push({ id: uuid(), type: 'STICKER', ...placeLabel(pick[0].placeName, 110, 1060), rotation: -2, zIndex: z++ });
+    } else if (tpl === 'MINIMAL') {
+      if (pick[0]) await image(pick[0], 120, 140, 760, 0, 'none', 860);
+      text(title, 120, 1080, 760, 90, 56, { font: 'basic', align: 'center' });
+      text([date ? fmtDate(date) : '', pick[0]?.placeName].filter(Boolean).join(' · ') || ' ', 120, 1180, 760, 60, 32, { font: 'basic', align: 'center', color: '#8a8597' });
     } else if (tpl === 'GRID') {
       text(title, 60, 40, 880, 100, 72);
       const ps = pick.slice(0, 4);
@@ -669,6 +792,39 @@
       ctx.font = `${Math.round(h * 0.34)}px ${EMOJI_FONT}`;
       ctx.fillStyle = '#000';
       ctx.fillText('✈️', x0 + w * 0.87, h * 0.02);
+    } else if (c.shape === 'memo') { // 손글씨 메모지 (테이프로 붙인 노란 종이)
+      const x0 = -w / 2;
+      const y0 = -h / 2;
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,.18)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 4;
+      ctx.fillStyle = c.color || '#fff3b0';
+      ctx.fillRect(x0 + 4, y0 + h * 0.06, w - 8, h * 0.94 - 4);
+      ctx.restore();
+      ctx.save(); ctx.globalAlpha = 0.75; ctx.fillStyle = '#e2cbff';
+      ctx.translate(0, y0 + h * 0.06); ctx.rotate(-0.05); ctx.fillRect(-w * 0.18, -h * 0.05, w * 0.36, h * 0.1); ctx.restore();
+      ctx.fillStyle = '#3a352f';
+      const size = Math.max(14, Math.min(h * 0.13, w * 0.09));
+      ctx.font = `${size}px ${FONTS.hand?.family || HAND_FONT}`;
+      ctx.textAlign = 'left';
+      const lines = wrapText(ctx, c.text || '', w - w * 0.16);
+      const lh = size * 1.3;
+      const maxLines = Math.max(1, Math.floor((h * 0.8) / lh));
+      lines.slice(0, maxLines).forEach((ln, i) => ctx.fillText(i === maxLines - 1 && lines.length > maxLines ? `${ln.slice(0, -1)}…` : ln, x0 + w * 0.08, y0 + h * 0.2 + lh * i + lh / 2));
+      ctx.textAlign = 'center';
+    } else if (c.shape === 'film') { // 필름 띠 (구멍 뚫린 검은 띠)
+      const x0 = -w / 2;
+      const y0 = -h / 2;
+      ctx.fillStyle = '#1d1b20';
+      roundRect(ctx, x0, y0, w, h, Math.min(w, h) * 0.02); ctx.fill();
+      const side = Math.min(w * 0.1, 60);
+      const hole = side * 0.45;
+      ctx.fillStyle = '#f4efe6';
+      for (let y = y0 + hole; y < y0 + h - hole * 1.5; y += hole * 2) {
+        roundRect(ctx, x0 + (side - hole) / 2, y, hole, hole * 1.2, hole * 0.2); ctx.fill();
+        roundRect(ctx, x0 + w - side + (side - hole) / 2, y, hole, hole * 1.2, hole * 0.2); ctx.fill();
+      }
+      ctx.fillStyle = '#2b2830';
+      ctx.fillRect(x0 + side, y0 + side * 0.4, w - side * 2, h - side * 0.8);
     } else if (c.shape === 'label') { // 장소 라벨
       const col = c.color || '#6E5FAE';
       roundRect(ctx, -w / 2 + h * 0.04, -h / 2 + h * 0.04, w - h * 0.08, h - h * 0.08, h / 2);
@@ -1138,7 +1294,7 @@
     t.innerHTML = `<div class="sb-ctx">
       ${e.type === 'IMAGE' ? '<button data-tool="crop">✂️ 자르기</button>' : ''}
       ${e.type === 'TEXT' ? '<button data-tool="edit">✏️ 글·글꼴·배경</button>' : ''}
-      ${e.type === 'STICKER' && DECO_SHAPES.includes(e.content.shape) ? '<button data-tool="deco">✏️ 글 수정</button>' : ''}
+      ${e.type === 'STICKER' && DECO_SHAPES.includes(e.content.shape) && e.content.shape !== 'film' ? '<button data-tool="deco">✏️ 글 수정</button>' : ''}
       ${e.type === 'IMAGE' ? '<button data-tool="frame">🖼️ 액자</button>' : ''}
       <button data-tool="rotL" aria-label="왼쪽으로 돌리기">⟲ 15°</button>
       <button data-tool="rotR" aria-label="오른쪽으로 돌리기">⟳ 15°</button>
@@ -1419,11 +1575,12 @@
 
   function editDeco(e) {
     const c = e.content;
-    const label = { stamp: '날짜 도장', ticket: '티켓', label: '장소 라벨' }[c.shape];
+    const label = { stamp: '날짜 도장', ticket: '티켓', label: '장소 라벨', memo: '메모지' }[c.shape];
     const body = openSheet(`<h2>${label}</h2>
       <form id="dcForm">
-        <label class="field"><span>${c.shape === 'stamp' ? '가운데 글' : '글'}</span><input name="text" maxlength="24" value="${esc(c.text || '')}"></label>
-        ${c.shape === 'label' ? '' : `<label class="field"><span>${c.shape === 'stamp' ? '위 작은 글' : '아래 작은 글'}</span><input name="sub" maxlength="30" value="${esc(c.sub || '')}"></label>`}
+        ${c.shape === 'memo' ? `<label class="field"><span>글 <small>160자</small></span><textarea name="text" maxlength="160" rows="4">${esc(c.text || '')}</textarea></label>`
+          : `<label class="field"><span>${c.shape === 'stamp' ? '가운데 글' : '글'}</span><input name="text" maxlength="24" value="${esc(c.text || '')}"></label>`}
+        ${c.shape === 'label' || c.shape === 'memo' ? '' : `<label class="field"><span>${c.shape === 'stamp' ? '위 작은 글' : '아래 작은 글'}</span><input name="sub" maxlength="30" value="${esc(c.sub || '')}"></label>`}
         <button class="primary" type="submit">적용</button>
       </form>`);
     $('#dcForm', body).onsubmit = (ev) => {
@@ -1599,6 +1756,7 @@
     const places = state.places.filter((x) => x.trip_id === S.tripId);
     const names = [...new Set((date ? places.filter((x) => visitKey(x) === date) : places).concat(places).map((x) => x.name))].slice(0, 10);
     const stampDays = date ? [date] : days.slice(0, 6);
+    const recs = dayRecords(date).filter((p) => p.comment || p.memo || p.title).slice(0, 12);
     const deco = [
       ...stampDays.map((d) => ({ label: `🔖 ${shared().short(d)} 날짜 도장`, make: () => dateStamp(d, 0, 0) })),
       ...names.map((nm) => ({ label: `📍 ${nm}`, make: () => placeLabel(nm, 0, 0) })),
@@ -1612,12 +1770,17 @@
       <div class="sticker-grid">${TAPES.map((c) => `<button type="button" data-tape="${c}" aria-label="마스킹테이프"><i class="tape-chip" style="background:${c}"></i></button>`).join('')}
         <button type="button" data-preset="good" aria-label="GOOD DAY 도장">🔖</button>
         <button type="button" data-preset="ticket" aria-label="빈 티켓">🎫</button>
-        <button type="button" data-preset="label" aria-label="빈 라벨">🏷️</button></div>
+        <button type="button" data-preset="label" aria-label="빈 라벨">🏷️</button>
+        <button type="button" data-preset="memo" aria-label="손글씨 메모지">🗒️</button>
+        <button type="button" data-preset="film" aria-label="필름 프레임">🎞️</button></div>
+      ${recs.length ? `<h3 class="st-sec">📝 기록 글 넣기</h3>
+        <div class="rec-list">${recs.map((p, i) => `<button type="button" class="rec-pick" data-rec="${i}"><b>${esc(p.title || p.name)}</b><small>${esc(recordText(p, 70).split('\n').slice(1).join(' ') || '글 없음 · 장소 이름만')}</small></button>`).join('')}</div>
+        <small class="hint">기록의 제목·한마디·이야기를 글자로 복사해 넣어요 (기록을 고쳐도 스크랩북 글은 그대로예요).</small>` : ''}
       ${STICKER_SETS.map(([g, list]) => `<h3 class="st-sec">${g}</h3>
         <div class="sticker-grid">${list.map((x) => `<button type="button" data-st="${x}" aria-label="스티커 ${x}">${x}</button>`).join('')}</div>`).join('')}`);
     const put = (el) => {
       closeSheet();
-      addEl({ ...el, ...centerSpot(el.width, el.height), rotation: el.content.shape === 'stamp' ? -10 : el.content.shape === 'tape' ? -8 : 0 });
+      addEl({ ...el, ...centerSpot(el.width, el.height), rotation: el.content.shape === 'stamp' ? -10 : el.content.shape === 'tape' ? -8 : el.content.shape === 'memo' ? -3 : 0 });
     };
     body.onclick = (ev) => {
       const s = ev.target.closest('[data-st]');
@@ -1630,6 +1793,17 @@
       else if (pr === 'good') put({ type: 'STICKER', width: 200, height: 200, content: { shape: 'stamp', text: 'GOOD', sub: 'DAY', color: '#6E5FAE' } });
       else if (pr === 'ticket') put({ type: 'STICKER', width: 440, height: 170, content: { shape: 'ticket', text: '어디로?', sub: '', color: '#d9f0e6' } });
       else if (pr === 'label') put({ ...placeLabel('장소', 0, 0) });
+      else if (pr === 'memo') put(memoNote('메모를 적어 보세요', 0, 0));
+      else if (pr === 'film') put({ type: 'STICKER', width: 620, height: 1000, content: { shape: 'film' } });
+      const rc = ev.target.closest('[data-rec]');
+      if (rc) {
+        const txt = recordText(recs[Number(rc.dataset.rec)]);
+        const size = 40;
+        const w = 760;
+        const lines = txt.split('\n').reduce((n, ln) => n + Math.max(1, Math.ceil((ln.length * size * 0.95) / (w - 40))), 0);
+        const h = Math.min(1200, Math.round(lines * size * 1.3 + size * 0.6));
+        put({ type: 'TEXT', width: w, height: h, content: { text: txt, size, font: 'hand', color: '#2d2a26', bg: 'cream' } });
+      }
     };
   }
 
@@ -1824,6 +1998,7 @@
           const [page] = await pq(sb.from('scrapbook_pages').insert({
             trip_id: S.tripId, title: `${$('#sbEditor .sb-title').value.trim() || ED.page.title} (내 편집)`.slice(0, 40),
             page_date: ED.page.page_date, template: ED.page.template, background: ED.bg, page_order: order,
+            ...(ED.page.scrapbook_id ? { scrapbook_id: ED.page.scrapbook_id } : {}),
           }).select());
           await pq(sb.rpc('save_scrapbook_page', { p_page_id: page.id, p_expected_revision: page.revision, p_elements: ED.els.map((e) => ({ ...toRow(e), id: uuid() })) }));
           localStorage.removeItem(`sbDraft:${ED.page.id}`);

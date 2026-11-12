@@ -496,7 +496,7 @@
       let pl = place;
       if (pl?.lat == null && placeId && placeId !== it?.place_id) { // 기록한 장소와 새로 연결하면 그 위치를 씀
         const p = tripPlaces.find((x) => x.id === placeId);
-        if (p) { pl = { place_name: p.name, address: null, lat: p.lat, lng: p.lng, verification_status: 'VERIFIED' }; placeTouched = true; }
+        if (p && p.lat != null) { pl = { place_name: p.name, address: null, lat: p.lat, lng: p.lng, verification_status: 'VERIFIED' }; placeTouched = true; }
       }
       const status = !placeTouched && it ? it.verification_status
         : pl?.lat != null ? (pl.verification_status || 'VERIFIED') : (pl?.place_name ? 'MANUAL' : 'UNVERIFIED');
