@@ -55,6 +55,8 @@ before(async () => {
   await db.exec(sql('migrate-005-record-time-plan-link.sql'));
   await db.exec(sql('migrate-006-scrapbook-design.sql'));
   await db.exec(sql('migrate-006-scrapbook-design.sql'));
+  await db.exec(sql('migrate-007-trip-info.sql'));
+  await db.exec(sql('migrate-007-trip-info.sql'));
 
   for (const [id, name] of [[A, 'aa'], [B, 'bb'], [C, 'cc']]) {
     await db.query("insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, jsonb_build_object('name', $3::text))",
@@ -265,6 +267,25 @@ test('006: 새 템플릿·배경은 저장되고 모르는 값은 거부', async
   await fails(B, "insert into scrapbook_pages (trip_id, template) values ($1, 'MAGAZINE')", [trip], /check constraint/);
 });
 
+test('007: 여행 국가·도시·유형·대표 사진 (같은 여행 사진만, 목록에 반영)', async () => {
+  const r = await rows(B, "update trips set country = '대한민국', cities = array['공주','부여'], party_type = 'FRIENDS' where id = $1 returning country, cities, party_type", [trip]);
+  assert.deepEqual([r[0].country, r[0].cities, r[0].party_type], ['대한민국', ['공주', '부여'], 'FRIENDS']);
+  await fails(B, "update trips set party_type = 'ALIEN' where id = $1", [trip], /check constraint/);
+  assert.equal((await rows(C, "update trips set country = 'x' where id = $1 returning id", [trip])).length, 0, '남은 못 고침');
+  // 대표 사진: 이 여행의 두 번째 사진으로 고르면 목록 표지가 그 사진
+  const pid = (await rows(B, "insert into places (trip_id, name, lat, lng) values ($1, '표지 후보', 36.4, 127.1) returning id", [trip]))[0].id;
+  const ph = (await rows(B, 'insert into photos (place_id, path, thumb_path) values ($1, $2, $3) returning id', [pid, `${trip}/cover.jpg`, `${trip}/cover_t.jpg`]))[0].id;
+  await rows(A, 'update trips set cover_photo_id = $1 where id = $2', [ph, trip]);
+  assert.equal((await rows(B, 'select cover_path, country from trip_list where id = $1', [trip]))[0].cover_path, `${trip}/cover_t.jpg`);
+  // 다른 여행 사진은 대표 사진 불가
+  const op = (await rows(C, "insert into places (trip_id, name, lat, lng) values ($1, 'x', 1, 1) returning id", [otherTrip]))[0].id;
+  const oph = (await rows(C, 'insert into photos (place_id, path, thumb_path) values ($1, $2, $3) returning id', [op, `${otherTrip}/o.jpg`, `${otherTrip}/o_t.jpg`]))[0].id;
+  await fails(A, 'update trips set cover_photo_id = $1 where id = $2', [oph, trip], /이 여행에 올린 사진만/);
+  // 대표 사진을 지우면 표지는 첫 사진으로 돌아감
+  await rows(B, 'delete from photos where id = $1', [ph]);
+  assert.notEqual((await rows(B, 'select cover_path from trip_list where id = $1', [trip]))[0].cover_path, `${trip}/cover_t.jpg`);
+});
+
 test('멤버가 나가면 새 자료도 못 봄 (TC-15)', async () => {
   assert.ok((await rows(B, 'select id from itinerary_items where trip_id = $1', [trip])).length > 0);
   await rows(B, 'delete from trip_members where trip_id = $1 and user_id = $2', [trip, B]);
@@ -285,7 +306,8 @@ test('되돌리기 SQL 이 기존 테이블을 남기고 새 테이블만 지움
   const x = new PGlite();
   await x.exec(SUPABASE_STUB);
   for (const f of ['schema.sql', 'migrate-002-username.sql', 'migrate-003-memories.sql', 'migrate-004-planner-scrapbook.sql',
-    'migrate-005-record-time-plan-link.sql', 'migrate-006-scrapbook-design.sql', 'rollback-006-scrapbook-design.sql',
+    'migrate-005-record-time-plan-link.sql', 'migrate-006-scrapbook-design.sql', 'migrate-007-trip-info.sql',
+    'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
     'rollback-005-record-time-plan-link.sql', 'rollback-004-planner-scrapbook.sql']) {
     await x.exec(sql(f));
   }

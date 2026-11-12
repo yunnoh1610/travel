@@ -164,7 +164,7 @@
     if (!r || state.view !== 'scrap') return;
     if (!S.tripId) { r.innerHTML = shared().pickTripHtml('스크랩북을'); return; }
     const t = trip();
-    if (!t) { r.innerHTML = '<div class="empty">기록장을 찾을 수 없어요</div>'; return; }
+    if (!t) { r.innerHTML = '<div class="empty">여행을 찾을 수 없어요</div>'; return; }
     const head = `<div class="section-head"><h2>📔 ${esc(t.title)}</h2>
       <div class="sb-head-btns">${S.pages.length ? '<button class="chip-btn" data-act="story" aria-label="스토리로 보기">▶ 스토리</button>' : ''}<button class="chip-btn" data-act="new-page">＋ 새 페이지</button></div></div>`;
     if (S.loading) { r.innerHTML = `${head}<div class="empty"><div class="spinner"></div>불러오는 중…</div>`; return; }
@@ -745,7 +745,7 @@
     while (s > 20 && ctx.measureText(text).width > maxW) { s -= 2; applyFont(ctx, st, s, fallback); }
     ctx.fillText(text, x, y);
   }
-  /** 배경 무늬 위에 페이지를 카드처럼 올리고, 위에 기록장 제목·날짜를 넣음 */
+  /** 배경 무늬 위에 페이지를 카드처럼 올리고, 위에 여행 제목·날짜를 넣음 */
   function composeStory(pageCanvas, bg, page) {
     const c = document.createElement('canvas');
     c.width = STORY_W;
@@ -1592,7 +1592,7 @@
   }
 
   function pickSticker() {
-    // 이 기록장의 날짜·장소 (페이지 날짜가 있으면 그날 장소 먼저)
+    // 이 여행의 날짜·장소 (페이지 날짜가 있으면 그날 장소 먼저)
     const t = trip();
     const date = ED.page.page_date;
     const days = shared().tripDays(t);
@@ -1605,7 +1605,7 @@
       { label: `🎫 ${t?.title || '여행'} 티켓`, make: () => tripTicket(t, 0, 0) },
     ];
     const body = openSheet(`<h2>스티커</h2>
-      <h3 class="st-sec">📅 이 기록장의 날짜·장소</h3>
+      <h3 class="st-sec">📅 이 여행의 날짜·장소</h3>
       <div class="deco-list">${deco.map((d, i) => `<button type="button" class="cand" data-deco="${i}">${esc(d.label)}</button>`).join('')}</div>
       <small class="hint">기록의 날짜·장소 이름을 글자로 넣어요. 나중에 기록을 고쳐도 붙인 스티커는 그대로예요 (눌러서 글을 고칠 수 있어요).</small>
       <h3 class="st-sec">🎀 장식</h3>
@@ -1642,7 +1642,7 @@
       ${bgPhoto ? '<button type="button" class="btn" data-bgph="remove" style="width:100%;margin-bottom:8px">배경 사진 빼기</button>' : ''}
       ${photos.length ? `<div class="sb-photo-grid">${photos.map((ph) => `<button type="button" data-bgph="${ph.id}" class="${bgPhoto?.photoId === ph.id ? 'on' : ''}" aria-label="${esc(ph.placeName)} 사진을 배경으로"><img src="${esc(ph.thumb)}" alt="" loading="lazy"></button>`).join('')}</div>
         <small class="hint">사진이 페이지 전체에 고정돼서 깔려요. 위에 올린 사진·글자·스티커는 그대로예요.</small>`
-        : '<div class="hint">이 기록장에 올린 사진이 아직 없어요</div>'}`);
+        : '<div class="hint">이 여행에 올린 사진이 아직 없어요</div>'}`);
     body.onclick = (ev) => {
       const b = ev.target.closest('[data-bg]');
       const ph = ev.target.closest('[data-bgph]')?.dataset.bgph;
@@ -1674,7 +1674,7 @@
       <small class="hint">이 여행에 기록한 사진은 다시 올리지 않고 그대로 가져와요.</small>
       ${photos.length ? [...groups].map(([d, list]) => `<h3 class="tl-date">${d ? fmtDate(d) : '날짜 없음'}${d === date ? ' · 이 페이지 날짜' : ''}</h3>
         <div class="sb-photo-grid">${list.map((p) => `<button type="button" data-ph="${p.id}" aria-pressed="false"><img src="${esc(p.thumb)}" alt="${esc(p.placeName)}" loading="lazy"></button>`).join('')}</div>`).join('')
-        : '<div class="empty small">이 기록장에 올린 사진이 아직 없어요</div>'}
+        : '<div class="empty small">이 여행에 올린 사진이 아직 없어요</div>'}
       <div class="sticky-actions">
         <label class="sb-auto"><input type="checkbox" id="phAuto" checked> 📍 날짜·장소 스티커도 함께 넣기</label>
         <button class="primary" id="phAdd" disabled>사진 넣기</button></div>`);

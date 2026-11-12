@@ -77,7 +77,7 @@
         pq(sb.from('trip_expenses').select('*').eq('trip_id', id).order('id')),
         pq(sb.from('checklist_items').select('*').eq('trip_id', id).order('sort_order').order('id')),
     ]);
-    if (P.tripId !== id) return; // 그 사이 다른 기록장을 고름
+    if (P.tripId !== id) return; // 그 사이 다른 여행을 고름
     Object.assign(P, { revision: plan?.revision ?? 0, prefs: plan?.prefs || {}, items, expenses, checklist, loadedFor: id, error: null });
     const days = tripDays(trip());
     if (!days.includes(P.day)) P.day = days.includes(today()) ? today() : days[0] || null;
@@ -98,7 +98,7 @@
     }
     render();
   }
-  // 일정을 바꾼 뒤: 이 화면과 기록장 타임라인을 함께 새로 (같은 일정 데이터)
+  // 일정을 바꾼 뒤: 이 화면과 여행 타임라인을 함께 새로 (같은 일정 데이터)
   async function reload() {
     if (P.tripId) {
       try { await loadTrip(P.tripId); } catch (err) { P.error = err; P.loadedFor = null; }
@@ -110,22 +110,17 @@
   // ---------- 그리기 ----------
   function render() {
     const root = el();
-    if (!root || state.view !== 'trips') return;
+    if (!root || state.view !== 'timeline') return;
     dayMap?.remove();
     dayMap = null;
-    // 기록장 탭: 고른 기록장이 없으면 목록(app.js), 있으면 이 일정 화면. ＋(장소 기록) 버튼은 목록에서만
-    const show = !!P.tripId;
-    $('#tripsHome').classList.toggle('hidden', show);
-    root.classList.toggle('hidden', !show);
-    $('#fab').classList.toggle('hidden', show);
-    if (!show) return;
+    // 타임라인 탭: 고른 여행이 없으면 여행 고르기, 있으면 그 여행의 일정·예산·준비물
+    if (!P.tripId) { root.innerHTML = pickTripHtml('일정을'); return; }
     const t = trip();
-    if (!t) { root.innerHTML = '<div class="empty">기록장을 찾을 수 없어요</div>'; return; }
+    if (!t) { root.innerHTML = '<div class="empty">여행을 찾을 수 없어요</div>'; return; }
     const head = `<div class="plan-top">
-        <button type="button" class="icon-btn ghost" data-act="back" aria-label="전체 기록장으로">←</button>
         <div class="plan-title">
           <h2>${kindIcon(t.kind)} ${esc(t.title)}</h2>
-          <small>${fmtRange(t.start_date, t.end_date)} · ${t.members.length}명</small>
+          <small>${typeof statusBadge === 'function' ? statusBadge(t) : ''} ${fmtRange(t.start_date, t.end_date)} · ${t.members.length}명</small>
         </div>
         <button type="button" class="icon-btn ghost" data-act="members" aria-label="멤버·초대">👥</button>
         <button type="button" class="icon-btn ghost" data-act="more" aria-label="더보기" aria-haspopup="dialog">⋯</button>
@@ -147,16 +142,16 @@
 
   function pickTripHtml(what) {
     if (!state.trips.length) {
-      return `<div class="empty"><div class="big">${ic('📒')}</div>먼저 기록장을 만들어 주세요<br>
-        <button class="chip-btn" data-act="new-trip" style="margin-top:12px">＋ 새 기록장</button></div>`;
+      return `<div class="empty"><div class="big">${ic('📒')}</div>먼저 여행을 만들어 주세요<br>
+        <button class="chip-btn" data-act="new-trip" style="margin-top:12px">＋ 새 여행</button></div>`;
     }
-    return `<h2>${what} 볼 기록장을 골라 주세요</h2>
+    return `<h2>${what} 볼 여행을 골라 주세요</h2>
       <p class="muted" style="margin-top:-6px">위쪽 선택 칸에서 골라도 돼요.</p>
       ${state.trips.map((t) => `<button class="card trip-card" data-pick-trip="${t.id}">
         <div class="thumb">${kindIcon(t.kind)}</div>
         <div class="body"><b>${esc(t.title)}</b><small>📅 ${fmtRange(t.start_date, t.end_date)}</small></div></button>`).join('')}`;
   }
-  window.PlannerShared = { pickTripHtml, tripDays, pq, money, hhmm, short, wday };
+  window.PlannerShared = { pickTripHtml, tripDays, pq, money, hhmm, short, wday, STYLES, TRANSPORTS };
 
   function errorHtml(err) {
     if (err.code === 'NEEDS_MIGRATION') {
@@ -772,13 +767,13 @@
     };
   }
 
-  // ---------- 더보기: 멤버·초대 / 기록장 정보 수정 / 다른 기록장 일정 불러오기 ----------
+  // ---------- 더보기: 멤버·초대 / 여행 정보 수정 / 다른 여행 일정 불러오기 ----------
   function openMore() {
     const body = openSheet(`<h2>더보기</h2>
       <div class="choice-list">
-        <button class="choice" data-m="members"><span class="ic">👥</span><span><b>멤버·초대</b><small>초대 링크 보내기, 멤버 관리, 기록장 나가기·삭제</small></span></button>
-        <button class="choice" data-m="edit"><span class="ic">✏️</span><span><b>기록장 정보 수정</b><small>이름·종류·날짜</small></span></button>
-        <button class="choice" data-m="import"><span class="ic">📥</span><span><b>다른 기록장 일정 불러오기</b><small>예전 여행 계획을 이 기록장 날짜에 맞춰 복사해요</small></span></button>
+        <button class="choice" data-m="members"><span class="ic">👥</span><span><b>멤버·초대</b><small>초대 링크 보내기, 멤버 관리, 여행 나가기·삭제</small></span></button>
+        <button class="choice" data-m="edit"><span class="ic">✏️</span><span><b>여행 정보 수정</b><small>이름·종류·날짜</small></span></button>
+        <button class="choice" data-m="import"><span class="ic">📥</span><span><b>다른 여행 일정 불러오기</b><small>예전 여행 계획을 이 여행 날짜에 맞춰 복사해요</small></span></button>
       </div>`);
     body.onclick = (e) => {
       const m = e.target.closest('[data-m]')?.dataset.m;
@@ -788,12 +783,12 @@
     };
   }
 
-  // ---------- 다른 기록장 일정 불러오기 (날짜는 이 기록장 1일차부터 차례로 맞춤, 지금 일정은 그대로) ----------
+  // ---------- 다른 여행 일정 불러오기 (날짜는 이 여행 1일차부터 차례로 맞춤, 지금 일정은 그대로) ----------
   async function openImport() {
     const target = trip();
     const days = tripDays(target);
     if (!days.length) { toast('먼저 여행 날짜를 정해 주세요'); openTripForm(target); return; }
-    const body = openSheet(`<h2>📥 다른 기록장 일정 불러오기</h2>
+    const body = openSheet(`<h2>📥 다른 여행 일정 불러오기</h2>
       <p class="muted" style="margin-top:-6px">‘${esc(target.title)}’ (${days.length}일)에 넣어요. 지금 있는 일정은 그대로예요.</p>
       <div id="impBody"><div class="hint">불러오는 중…</div></div>`);
     let rows;
@@ -808,7 +803,7 @@
     $('#impBody', body).innerHTML = list.length ? list.map((t) => `<button class="card trip-card" data-src="${t.id}">
         <div class="thumb">${kindIcon(t.kind)}</div>
         <div class="body"><b>${esc(t.title)}</b><small>📅 ${fmtRange(t.start_date, t.end_date)} · 일정 ${counts[t.id]}개</small></div></button>`).join('')
-      : '<div class="empty small">불러올 수 있는 다른 기록장 일정이 없어요</div>';
+      : '<div class="empty small">불러올 수 있는 다른 여행 일정이 없어요</div>';
     body.onclick = async (e) => {
       const b = e.target.closest('[data-src]');
       if (b) return previewImport(body, state.trips.find((t) => t.id === Number(b.dataset.src)), days);
@@ -822,11 +817,11 @@
     const mapped = items.map((i) => ({ i, to: days[srcDays.indexOf(i.day_date)] })).filter((x) => x.to);
     const skipped = items.length - mapped.length;
     const perDay = days.map((d, k) => [k + 1, d, mapped.filter((x) => x.to === d).length]).filter((x) => x[2]);
-    $('#impBody', body).innerHTML = `<div class="notice">‘${esc(src.title)}’ 일정 <b>${mapped.length}개</b>를 넣어요${skipped ? ` · ${skipped}개는 이 기록장 기간을 넘어서 빼요` : ''}</div>
+    $('#impBody', body).innerHTML = `<div class="notice">‘${esc(src.title)}’ 일정 <b>${mapped.length}개</b>를 넣어요${skipped ? ` · ${skipped}개는 이 여행 기간을 넘어서 빼요` : ''}</div>
       <ul class="imp-days">${perDay.map(([k, d, c]) => `<li>${k}일차 ${short(d)} (${wday(d)}) · ${c}개</li>`).join('')}</ul>
-      <small class="hint">시간·장소·메모를 그대로 복사해요. 불러온 뒤에는 이 기록장 일정으로 따로 고칠 수 있어요.</small>
+      <small class="hint">시간·장소·메모를 그대로 복사해요. 불러온 뒤에는 이 여행 일정으로 따로 고칠 수 있어요.</small>
       <div class="sticky-actions"><button class="primary" id="impGo" ${mapped.length ? '' : 'disabled'}>일정 ${mapped.length}개 불러오기</button>
-        <div class="btn-row"><button class="btn" id="impBack">← 다른 기록장 고르기</button></div></div>`;
+        <div class="btn-row"><button class="btn" id="impBack">← 다른 여행 고르기</button></div></div>`;
     $('#impGo', body).onclick = async (e) => {
       const btn = e.target;
       btn.disabled = true;
@@ -1059,12 +1054,12 @@
 
   // ---------- 연결 ----------
   bind();
-  window.addEventListener('travel:view', (e) => { if (e.detail === 'trips') load(); else { dayMap?.remove(); dayMap = null; } });
+  window.addEventListener('travel:view', (e) => { if (e.detail === 'timeline') load(); else { dayMap?.remove(); dayMap = null; } });
   window.addEventListener('travel:refresh', () => {
-    // 기록장을 바꾸거나 기록장 정보(날짜)를 고친 뒤
-    if (state.view === 'trips') load(true);
+    // 여행을 바꾸거나 여행 정보(날짜)를 고친 뒤
+    if (state.view === 'timeline') load(true);
     else P.loadedFor = null;
   });
-  window.addEventListener('online', () => { if (state.view === 'trips') render(); });
-  window.addEventListener('offline', () => { if (state.view === 'trips') render(); });
+  window.addEventListener('online', () => { if (state.view === 'timeline') render(); });
+  window.addEventListener('offline', () => { if (state.view === 'timeline') render(); });
 })();

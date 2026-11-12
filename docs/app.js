@@ -17,7 +17,7 @@ const ic = (emoji) => (currentTheme === 'glass' && GLASS_ICONS[emoji]
   ? `<img class="ic" src="icons/${GLASS_ICONS[emoji]}.svg" alt="">` : emoji);
 const catIcon = (c) => ic((CATS[c] || CATS.etc)[0]);
 const catLabel = (c) => `${catIcon(c)} ${(CATS[c] || CATS.etc)[1]}`;
-// 기록장 종류
+// 여행 종류
 const KINDS = {
   trip: ['🧳', '여행', '예: 2026 오사카 먹방 여행'],
   gathering: ['🎉', '모임·기념일', '예: 우정 10주년 저녁'],
@@ -68,7 +68,7 @@ function applyTheme(t) {
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', THEMES[t].color);
   try { localStorage.setItem(THEME_KEY, t); } catch { /* 저장 불가 */ }
   // 지도 경로선 색과 아이콘(글래스 테마는 그림 아이콘)을 다시 그림
-  if (typeof map !== 'undefined' && map && state.me) { renderFilter(); renderMap(false); renderTimeline(); renderTrips(); }
+  if (typeof map !== 'undefined' && map && state.me) { renderFilter(); renderMap(false); renderJournal(); renderTrips(); }
 }
 function themePicker() {
   return `<div class="theme-list">${VISIBLE_THEMES.map((k) => [k, THEMES[k]]).map(([k, t]) => `
@@ -232,7 +232,7 @@ const db = {
   },
   async createTrip(f) {
     const fields = tripFields(f);
-    // 연타·네트워크 재전송으로 같은 기록장이 두 번 생기지 않게: 10초 안에 만든 같은 이름이 있으면 그걸 씀
+    // 연타·네트워크 재전송으로 같은 여행이 두 번 생기지 않게: 10초 안에 만든 같은 이름이 있으면 그걸 씀
     const since = new Date(Date.now() - 10e3).toISOString();
     const dup = await q(sb.from('trips').select('id').eq('owner_id', state.me.id).eq('title', fields.title)
       .gte('created_at', since).order('id', { ascending: false }).limit(1));
@@ -302,7 +302,7 @@ const db = {
     return { sent: ok.length, failed: items.length - ok.length, error: lastError };
   },
   updatePlace: (id, f) => qChanged(sb.from('places').update(v5(f)).eq('id', id).select('id')),
-  /** 여행 계획 일정 (기록장 타임라인에 함께 보여 줌). DB 설정 004 전이면 빈 목록 */
+  /** 여행 계획 일정 (기록에 연결된 계획 표시·타임라인). DB 설정 004 전이면 빈 목록 */
   async plans(filter) {
     let qb = sb.from('itinerary_items').select('*').order('day_date').order('sort_order').order('id');
     if (filter !== 'all') qb = qb.eq('trip_id', filter);
@@ -365,7 +365,7 @@ function matchPlan(items, { date, time, name, pos }) {
   return best?.it || null;
 }
 const planCache = new Map();
-/** 기록장의 계획 일정 (화면에 이미 불러온 것이 있으면 그대로) */
+/** 여행의 계획 일정 (화면에 이미 불러온 것이 있으면 그대로) */
 async function plansOfTrip(tripId) {
   const have = state.plans.filter((i) => i.trip_id === tripId);
   if (have.length || state.filter === 'all' || state.filter === tripId) return have;
@@ -380,14 +380,30 @@ function planOptions(items, date, chosen) {
 }
 
 // 여행은 시작일~종료일, 모임·일상은 날짜 하나
+const PARTY = { SOLO: '혼자', COUPLE: '커플', FRIENDS: '친구', FAMILY: '가족', GROUP: '단체' };
+const PARTY_PEOPLE = { SOLO: 1, COUPLE: 2 };
+const COUNTRIES = ['대한민국', '일본', '중국', '대만', '홍콩', '마카오', '베트남', '태국', '필리핀', '싱가포르', '말레이시아', '인도네시아',
+  '라오스', '캄보디아', '몽골', '인도', '튀르키예', '아랍에미리트', '미국', '캐나다', '멕시코', '브라질', '호주', '뉴질랜드', '괌·사이판',
+  '영국', '프랑스', '독일', '이탈리아', '스페인', '포르투갈', '스위스', '오스트리아', '체코', '헝가리', '네덜란드', '벨기에', '그리스',
+  '크로아티아', '덴마크', '노르웨이', '스웨덴', '핀란드', '아이슬란드', '이집트', '모로코'];
+const splitList = (v) => String(v || '').split(/[,，、\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 10);
 function tripFields(f) {
   const kind = KINDS[f.kind] ? f.kind : 'trip';
-  return {
+  const out = {
     title: String(f.title || '').trim(),
     kind,
     start_date: f.start_date || null,
     end_date: kind === 'trip' ? (f.end_date || null) : null,
   };
+  // 여행 정보 확장 (DB 설정 007 이 있을 때만 보냄)
+  if (state.v007 && 'country' in f) {
+    out.country = String(f.country || '').trim().slice(0, 40) || null;
+    const cities = splitList(f.cities).map((c) => c.slice(0, 40));
+    out.cities = cities.length ? cities : null;
+    out.party_type = PARTY[f.party_type] ? f.party_type : null;
+    if ('cover_photo_id' in f) out.cover_photo_id = f.cover_photo_id ? Number(f.cover_photo_id) : null;
+  }
+  return out;
 }
 
 // ---------- 장소 검색 (OpenStreetMap Nominatim, 1초에 1번 규칙 지킴) ----------
@@ -780,7 +796,7 @@ async function showInviteBanner() {
   if (!inviteToken) { el.classList.add('hidden'); return; }
   try {
     const inv = await db.inviteInfo(inviteToken);
-    el.innerHTML = `<b>${esc(inv.inviter)}</b>님이 <b>‘${esc(inv.title)}’</b> 기록장에 초대했어요.<br>
+    el.innerHTML = `<b>${esc(inv.inviter)}</b>님이 <b>‘${esc(inv.title)}’</b> 여행에 초대했어요.<br>
       <small>처음이면 회원가입, 이미 계정이 있으면 로그인하면 바로 참여돼요.</small>`;
     el.classList.remove('error');
     setAuthMode('signup');
@@ -798,7 +814,7 @@ async function acceptPendingInvite() {
   try {
     const r = await db.acceptInvite(token);
     state.filter = Number(r.trip_id);
-    toast(r.already ? `이미 ‘${r.title}’ 기록장 멤버예요` : `‘${r.title}’ 기록장에 참여했어요 🎉`);
+    toast(r.already ? `이미 ‘${r.title}’ 여행 멤버예요` : `‘${r.title}’ 여행에 참여했어요 🎉`);
   } catch (err) { toast(err.message); }
 }
 
@@ -810,6 +826,8 @@ async function enterApp(user) {
     if (p?.name) name = p.name;
   } catch { /* 이름은 가입 정보로 */ }
   state.me = { id: user.id, email: user.email, userid: userIdOf(user.email), name };
+  // DB 설정 007(여행 국가·도시·유형·대표 사진)이 있는지
+  try { const r = await sb.from('trips').select('country').limit(1); state.v007 = !r.error; } catch { state.v007 = false; }
   // 계정에 저장된 테마가 있으면 이 기기에도 적용 (다른 기기에서 바꾼 테마 따라가기)
   const savedTheme = user.user_metadata?.theme;
   if (savedTheme && usableTheme(savedTheme) && savedTheme !== currentTheme) applyTheme(savedTheme);
@@ -844,16 +862,16 @@ async function refresh(fit = false) {
   } catch (err) { toast(err.message); return; }
   renderFilter();
   renderMap(fit);
-  renderTimeline();
+  renderJournal();
   renderTrips();
-  // 일정·스크랩북 화면(planner.js, scrapbook.js)이 선택한 기록장에 맞춰 다시 그리도록 알림
+  // 일정·스크랩북 화면(planner.js, scrapbook.js)이 선택한 여행에 맞춰 다시 그리도록 알림
   window.dispatchEvent(new CustomEvent('travel:refresh'));
 }
 
 function renderFilter() {
   const sel = $('#tripFilter');
   const total = state.trips.reduce((n, t) => n + t.place_count, 0);
-  sel.innerHTML = `<option value="all">🌏 모든 기록장 (${total})</option>`
+  sel.innerHTML = `<option value="all">🌏 모든 여행 (${total})</option>`
     + state.trips.map((t) => `<option value="${t.id}">${kindEmoji(t.kind)} ${esc(t.title)} (${t.place_count})</option>`).join('');
   sel.value = String(state.filter);
 }
@@ -882,7 +900,7 @@ function renderMap(fit) {
   if (!ordered.length) {
     const msg = state.trips.length
       ? '아직 기록이 없어요. 오른쪽 아래 <b>＋</b> 버튼으로 첫 장소를 남겨보세요!'
-      : '반가워요! 먼저 아래 <b>기록장</b> 탭에서 여행이나 모임 기록장을 만들고, 함께한 친구를 초대해 보세요.';
+      : '반가워요! 먼저 위쪽 <b>🧳</b> 버튼에서 여행을 만들고, 함께한 친구를 초대해 보세요.';
     $('#view-map').insertAdjacentHTML('beforeend', `<div class="map-empty">${msg}</div>`);
   } else if (fit) {
     map.fitBounds(ordered.map((p) => [p.lat, p.lng]), { padding: [60, 60], maxZoom: 14, animate: false }); // 다른 탭에 있을 때(지도가 숨겨진 동안) 애니메이션 오류 방지
@@ -903,110 +921,105 @@ function placeCard(p) {
     </div>
   </button>`;
 }
-const PLAN_ICONS = { PLACE: '📍', MEAL: '🍜', CAFE: '☕', MOVE: '🚌', STAY: '🏨', REST: '🛋️', ETC: '✨' };
-function planCard(i) {
-  const time = i.start_time ? `${hhmm(i.start_time)}${i.end_time ? `<small>~${hhmm(i.end_time)}</small>` : ''}` : '<small>시간<br>미정</small>';
-  const unverified = ['PLACE', 'MEAL', 'CAFE', 'STAY'].includes(i.item_type) && i.place_name && i.verification_status === 'UNVERIFIED';
-  return `<button class="card plan-card" data-plan="${i.id}">
-    <div class="thumb plan-thumb">${time}</div>
-    <div class="body">
-      <span class="plan-tag">📋 계획${i.source === 'AI' ? ' · AI' : ''}</span>
-      <b>${ic(PLAN_ICONS[i.item_type] || '✨')} ${esc(i.title)}</b>
-      <small>${i.place_name && i.place_name !== i.title ? `📍 ${esc(i.place_name)} · ` : ''}${unverified ? '⚠ 미확인 장소 · ' : ''}${state.filter === 'all' ? esc(state.trips.find((t) => t.id === i.trip_id)?.title || '') : '아직 기록 전'}</small>
-    </div></button>`;
-}
 /**
- * 기록장 타임라인 = 실제 기록(장소·사진) + 여행 계획 일정
- * - 계획과 같은 데이터(itinerary_items)를 그대로 보여 줘서 일정 화면과 내용이 항상 같아요
- * - 기록이 계획에 연결되면 기록 카드 하나로 합쳐 보여 주고, 순서는 실제 기록(사진 촬영) 시각 기준
- * - 날짜는 최근 날짜가 위, 하루 안에서는 시간 순서
+ * 기록장 탭 = 실제로 다녀온 기록(장소·사진·이야기). 여행 계획(일정)은 타임라인 탭에 있어요
+ * - 기록이 계획 일정에 연결되어 있으면 "📋 계획: 10:00 ○○"로 함께 보여 줘요
+ * - 날짜는 최근 날짜가 위, 하루 안에서는 실제 기록(사진 촬영) 시각 순서
  */
-function renderTimeline() {
-  const el = $('#timeline');
-  const linked = new Set(state.places.map((p) => p.plan_item_id).filter(Boolean));
-  const entries = [
-    ...state.places.map((p) => ({ date: visitKey(p), time: hhmm(p.visited_time), kind: 0, id: p.id, html: () => placeCard(p) })),
-    ...state.plans.filter((i) => !linked.has(i.id)).map((i) => ({ date: i.day_date, time: hhmm(i.start_time), kind: 1, id: i.sort_order, html: () => planCard(i) })),
-  ];
-  const foot = `<div class="tl-foot"><button class="primary" id="planAddBtn">＋ 계획 추가</button>
-    <small class="hint">직접 넣거나 AI에게 추천받아요. 기록장의 일정 화면과 같은 일정이에요.</small></div>`;
-  if (!entries.length) {
-    el.innerHTML = `<div class="empty"><div class="big">${ic('🗺️')}</div>아직 기록이 없어요</div>${state.trips.length ? foot : ''}`;
+function renderJournal() {
+  const el = $('#journal');
+  if (!el) return;
+  const t = state.filter !== 'all' ? state.trips.find((x) => x.id === state.filter) : null;
+  const head = `<div class="section-head"><h2>📒 기록장</h2><small class="muted">${t ? esc(t.title) : '모든 여행'} · ${state.places.length}곳</small></div>`;
+  if (!state.places.length) {
+    el.innerHTML = `${head}<div class="empty"><div class="big">${ic('🗺️')}</div>아직 기록이 없어요<br>
+      <small>오른쪽 아래 ＋ 버튼으로 다녀온 곳과 사진을 남겨 보세요</small></div>`;
     return;
   }
+  const entries = state.places.map((p) => ({ date: visitKey(p), time: hhmm(p.visited_time), id: p.id, p }));
   entries.sort((a, b) => b.date.localeCompare(a.date)
-    || (a.time ? 0 : 1) - (b.time ? 0 : 1) || a.time.localeCompare(b.time) || a.kind - b.kind || a.id - b.id);
-  let html = '';
+    || (a.time ? 0 : 1) - (b.time ? 0 : 1) || a.time.localeCompare(b.time) || a.id - b.id);
+  let html = head;
   let last = null;
   for (const x of entries) {
     if (x.date !== last) { html += `<h3 class="tl-date">${fmtDate(x.date)}</h3>`; last = x.date; }
-    html += x.html();
+    html += placeCard(x.p);
   }
-  el.innerHTML = html + foot;
+  el.innerHTML = html;
 }
-$('#timeline').onclick = (e) => {
+$('#journal').onclick = (e) => {
   const c = e.target.closest('[data-place]');
-  if (c) return openPlace(Number(c.dataset.place));
-  const pl = e.target.closest('[data-plan]');
-  if (pl) return window.Planner?.openItem(state.plans.find((i) => i.id === Number(pl.dataset.plan)));
-  if (e.target.closest('#planAddBtn')) openPlanAdd();
+  if (c) openPlace(Number(c.dataset.place));
 };
-/** 다른 화면(일정)에서 일정을 바꾼 뒤 타임라인만 다시 */
+/** 다른 화면(타임라인 일정)에서 일정을 바꾼 뒤 기록에 붙은 계획 표시만 다시 */
 window.refreshPlans = async () => {
   planCache.clear();
   state.plans = await db.plans(state.filter);
-  renderTimeline();
+  renderJournal();
 };
 
-// ---------- 타임라인 아래 "계획 추가": 직접 / AI ----------
-function openPlanAdd() {
-  const tripsWithDates = state.trips.filter((t) => t.start_date);
-  if (!tripsWithDates.length) { toast('먼저 기록장에 여행 날짜를 정해 주세요'); return; }
-  const def = state.filter !== 'all' ? state.filter : tripsWithDates[0].id;
-  const body = openSheet(`<h2>계획 추가</h2>
-    ${state.filter === 'all' || !tripsWithDates.some((t) => t.id === def) ? `<label class="field"><span>기록장</span><select id="paTrip">${tripsWithDates.map((t) => `<option value="${t.id}" ${t.id === def ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>` : ''}
-    <div class="choice-list">
-      <button class="choice" data-pa="manual"><span class="ic">＋</span><span><b>직접 일정 추가</b><small>시간·장소·예상 비용을 직접 적어요</small></span></button>
-      <button class="choice" data-pa="ai"><span class="ic">✨</span><span><b>AI로 일정 추가</b><small>"근처 카페 추가해 줘"처럼 말하면 지금 일정과 겹치지 않게, 가까운 곳으로 추천해요</small></span></button>
-    </div>`);
-  body.onclick = (e) => {
-    const a = e.target.closest('[data-pa]')?.dataset.pa;
-    if (!a) return;
-    const tripId = Number($('#paTrip', body)?.value || def);
-    if (!state.trips.find((t) => t.id === tripId)?.start_date) { toast('먼저 기록장에 여행 날짜를 정해 주세요'); return; }
-    if (a === 'manual') window.Planner?.addManual(tripId);
-    else window.Planner?.addWithAI(tripId);
-  };
+// ---------- 여행 상태 (날짜로 자동: 계획 중 / 여행 중 / 여행 완료) ----------
+const dayDiff = (a, b) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 864e5);
+function tripStatus(t) {
+  if (!t?.start_date) return null;
+  const s = t.start_date;
+  const e = t.end_date || t.start_date;
+  const d = today();
+  if (d < s) return { key: 'plan', label: `계획 중 · D-${dayDiff(s, d)}` };
+  if (d > e) return { key: 'done', label: t.kind === 'trip' ? '여행 완료' : '지난 기록' };
+  if (s === e) return { key: 'now', label: '오늘' };
+  return { key: 'now', label: `여행 중 · ${dayDiff(d, s) + 1}일차` };
 }
+const statusBadge = (t) => { const st = tripStatus(t); return st ? `<span class="trip-status ${st.key}">${st.label}</span>` : ''; };
 
-function renderTrips() {
+// ---------- 내 여행 목록 (모든 탭 공통, 위쪽 🧳 버튼) ----------
+function tripsListHtml() {
   const places = state.trips.reduce((n, t) => n + t.place_count, 0);
   const friends = new Set(state.trips.flatMap((t) => t.members.map((m) => m.id)).filter((id) => id !== state.me.id));
-  $('#tripStats').innerHTML = `<div><b>${state.trips.length}</b><small>기록장</small></div>
-    <div><b>${places}</b><small>장소</small></div><div><b>${friends.size}</b><small>함께한 친구</small></div>`;
-  $('#tripList').innerHTML = state.trips.length
-    ? state.trips.map((t) => `<button class="card trip-card" data-trip="${t.id}" data-kind="${esc(t.kind || 'trip')}">
+  const cards = state.trips.map((t) => `<div class="card trip-card ${state.filter === t.id ? 'on' : ''}" data-kind="${esc(t.kind || 'trip')}">
+      <button type="button" class="trip-pick" data-trip="${t.id}" aria-label="${esc(t.title)} 고르기">
         ${t.cover ? `<img class="thumb" src="${esc(t.cover)}" alt="" loading="lazy">` : `<div class="thumb">${kindIcon(t.kind)}</div>`}
-        <div class="body">
+        <span class="body">
           <b>${esc(t.title)}</b>
-          <small>${kindIcon(t.kind)} ${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳</small>
+          <small>${statusBadge(t)} ${kindIcon(t.kind)} ${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳</small>
+          ${t.country || t.cities?.length || t.party_type ? `<small>🌏 ${esc([t.cities?.join(', '), t.country].filter(Boolean).join(' · '))}${t.party_type ? ` · ${PARTY[t.party_type] || ''}` : ''}</small>` : ''}
           <small>👥 ${t.members.map((m) => esc(m.name)).join(', ')}</small>
-        </div></button>`).join('')
-    : `<div class="empty"><div class="big">${ic('📒')}</div>첫 기록장을 만들어 보세요<br><small>여행, 모임·기념일, 일상 중에 골라요</small></div>`;
+        </span>
+      </button>
+      <button type="button" class="icon-btn" data-manage="${t.id}" aria-label="${esc(t.title)} 멤버·수정">⋯</button>
+    </div>`).join('');
+  return `<div class="section-head"><h2>내 여행</h2><button class="chip-btn" data-act="new-trip">＋ 새 여행</button></div>
+    <div class="stats"><div><b>${state.trips.length}</b><small>여행</small></div>
+      <div><b>${places}</b><small>장소</small></div><div><b>${friends.size}</b><small>함께한 친구</small></div></div>
+    ${state.trips.length ? `<button type="button" class="card trip-all ${state.filter === 'all' ? 'on' : ''}" data-trip="all">🌏 모든 여행 함께 보기</button>${cards}`
+      : `<div class="empty"><div class="big">${ic('📒')}</div>첫 여행을 만들어 보세요<br><small>여행, 모임·기념일, 일상 중에 골라요</small></div>`}`;
 }
-$('#tripList').onclick = (e) => {
-  const c = e.target.closest('[data-trip]');
-  // 기록장을 누르면 그 기록장의 일정·예산·준비물 화면으로 (멤버·초대는 그 화면 위쪽 버튼)
-  if (c) { state.filter = Number(c.dataset.trip); refresh(true); }
-};
-$('#newTripBtn').onclick = () => openTripForm();
+function openTripsSheet() {
+  const body = openSheet(`<div id="tripsSheet">${tripsListHtml()}</div>`);
+  body.onclick = (e) => {
+    if (e.target.closest('[data-act=new-trip]')) return openTripForm();
+    const m = e.target.closest('[data-manage]');
+    if (m) return openTrip(Number(m.dataset.manage));
+    const c = e.target.closest('[data-trip]');
+    if (!c) return;
+    state.filter = c.dataset.trip === 'all' ? 'all' : Number(c.dataset.trip);
+    closeSheet();
+    refresh(true);
+  };
+}
+// 목록 창이 열려 있으면 새 정보로 다시
+function renderTrips() {
+  const box = $('#tripsSheet');
+  if (box?.isConnected) box.innerHTML = tripsListHtml();
+}
+$('#tripsBtn').onclick = openTripsSheet;
 
 function switchView(view) {
   state.view = view;
   for (const v of document.querySelectorAll('main > .view')) v.classList.toggle('hidden', v.id !== `view-${view}`);
   for (const b of document.querySelectorAll('.tabbar button')) b.classList.toggle('on', b.dataset.view === view);
-  // 장소 기록 버튼(＋)은 지도·타임라인·기록장 화면에서만
-  $('#fab').classList.toggle('hidden', !['map', 'timeline', 'trips'].includes(view));
+  // 장소 기록 버튼(＋)은 지도·기록장 화면에서만 (타임라인·스크랩북은 각자 추가 버튼)
+  $('#fab').classList.toggle('hidden', !['map', 'journal'].includes(view));
   if (view === 'map') setTimeout(() => map.invalidateSize(), 0);
   window.dispatchEvent(new CustomEvent('travel:view', { detail: view }));
 }
@@ -1025,7 +1038,7 @@ function passwordFields(withCurrent) {
 $('#meBtn').onclick = () => {
   const body = openSheet(`<h2>${esc(state.me.name)}</h2>
     <p class="muted">${state.me.userid
-      ? `아이디: <b>${esc(state.me.userid)}</b><br>친구가 기록장에 초대할 때 이 아이디를 알려주세요.`
+      ? `아이디: <b>${esc(state.me.userid)}</b><br>친구가 여행에 초대할 때 이 아이디를 알려주세요.`
       : esc(state.me.email)}</p>
     <div class="divider"></div>
     ${VISIBLE_THEMES.length > 1 ? `<h3 style="margin:0 0 10px">화면 테마</h3>
@@ -1178,7 +1191,7 @@ function openPlace(id) {
       input.value = '';
       p.comment_count = (p.comment_count || 0) + 1;
       await loadComments();
-      renderTimeline();
+      renderJournal();
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
   };
 
@@ -1190,7 +1203,7 @@ function openPlace(id) {
         await db.deleteComment(Number(cdel.dataset.cdel));
         p.comment_count = Math.max(0, (p.comment_count || 1) - 1);
         await loadComments();
-        renderTimeline();
+        renderJournal();
       } catch (err) { toast(err.message); }
       return;
     }
@@ -1291,7 +1304,7 @@ function openEditPlace(p) {
 // ---------- 장소 기록하기 ----------
 $('#fab').onclick = () => {
   if (!state.trips.length) {
-    toast('먼저 기록장을 만들어 주세요');
+    toast('먼저 여행을 만들어 주세요');
     openTripForm();
     return;
   }
@@ -1365,14 +1378,14 @@ function openBulkImport() {
   let leftovers = [];
   let bmap = null;
   let busy = false;
-  let bulkPlans = []; // 고른 기록장의 여행 계획 일정 (장소마다 연결 추천)
+  let bulkPlans = []; // 고른 여행의 여행 계획 일정 (장소마다 연결 추천)
   const clusterDate = (c) => { const f = c.items.find((it) => it.taken != null); return f ? toYMD(new Date(f.taken)) : today(); };
   const suggestFor = (c) => matchPlan(bulkPlans, { date: clusterDate(c), time: c.time, name: c.name, pos: c.center })?.id || null;
   const listeners = new AbortController(); // 시트를 닫으면 아래 입력 감지도 같이 해제
 
   const body = openSheet(`<h2>사진으로 한꺼번에 기록</h2>
     <p class="muted" style="margin-top:-6px">그날 찍은 사진을 한 번에 고르면, 찍은 위치별로 장소를 나눠서 기록해 줘요.</p>
-    <label class="field"><span>기록장</span><select name="trip" id="bulkTrip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
+    <label class="field"><span>여행</span><select name="trip" id="bulkTrip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
     <label class="primary pick-btn">📷 사진 고르기 (최대 ${BULK_MAX}장)<input type="file" accept="image/*" multiple hidden id="bulkInput"></label>
     <small class="hint">아이폰은 사진 고르는 화면 위쪽 <b>옵션</b>에서 <b>위치</b>를 켜야 위치 정보가 함께 와요.</small>
     <div id="bulkStatus" class="bulk-status hidden"></div>
@@ -1658,7 +1671,7 @@ function openBulkImport() {
 
 function openAddPlace() {
   if (!state.trips.length) {
-    toast('먼저 기록장을 만들어 주세요');
+    toast('먼저 여행을 만들어 주세요');
     openTripForm();
     return;
   }
@@ -1673,7 +1686,7 @@ function openAddPlace() {
 
   const body = openSheet(`<h2>장소 기록하기</h2>
     <form id="addForm" autocomplete="off">
-      <label class="field"><span>기록장</span><select name="trip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
+      <label class="field"><span>여행</span><select name="trip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
       <div class="field"><span>사진 <small id="photoCount"></small></span>
         <div class="photo-strip" id="strip">
           <label class="add-photo">＋<small>사진 선택</small><input type="file" accept="image/*" multiple hidden id="photoInput"></label>
@@ -2034,7 +2047,7 @@ function rangePicker(box, { start = '', end = '', single = false, onChange }) {
 // ---------- 여행 ----------
 function openTripForm(trip) {
   const kind0 = trip?.kind || 'trip';
-  const body = openSheet(`<h2>${trip ? '기록장 정보 수정' : '새 기록장 만들기'}</h2>
+  const body = openSheet(`<h2>${trip ? '여행 정보 수정' : '새 여행 만들기'}</h2>
     <form id="tripForm">
       <div class="field"><span>종류</span><div class="cats">${Object.entries(KINDS).map(([k, [, label]]) => `<label>
         <input type="radio" name="kind" value="${k}" ${k === kind0 ? 'checked' : ''}><span>${kindIcon(k)} ${label}</span></label>`).join('')}</div></div>
@@ -2042,6 +2055,7 @@ function openTripForm(trip) {
       <div class="field"><span>날짜</span><div id="tripDates"></div></div>
       <input type="hidden" name="start_date" value="${esc(trip?.start_date || '')}">
       <input type="hidden" name="end_date" value="${esc(trip?.end_date || '')}">
+      ${tripMoreHtml(trip)}
       <button class="primary" type="submit">${trip ? '저장' : '만들기'}</button>
     </form>`);
   const tf = $('#tripForm', body);
@@ -2057,6 +2071,7 @@ function openTripForm(trip) {
   }
   tf.onchange = (e) => { if (e.target.name === 'kind') applyKind(); };
   applyKind();
+  if (trip) loadTripPrefs(trip.id, tf); // 저장해 둔 스타일·교통·예산 채우기
   tf.onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -2064,21 +2079,95 @@ function openTripForm(trip) {
     if (btn.disabled) return; // 연타 방지
     btn.disabled = true;
     const data = { title: f.title.value, kind: f.kind.value, start_date: f.start_date.value, end_date: f.end_date.value };
+    if (f.country) Object.assign(data, { country: f.country.value, cities: f.cities.value, party_type: f.party_type.value });
+    if (f.cover_photo_id) data.cover_photo_id = f.cover_photo_id.value;
+    const more = readTripPrefs(f);
+    if (more?.budget === 'bad') { toast('예산은 0 이상으로 입력해 주세요'); btn.disabled = false; return; }
     try {
       if (trip) {
         await db.updateTrip(trip.id, data);
+        await saveTripPrefs(trip.id, more, data);
         await refresh();
         openTrip(trip.id);
       } else {
         const id = await db.createTrip(data);
+        await saveTripPrefs(id, more, data);
         state.filter = id;
         closeSheet();
-        switchView('trips'); // 기록장 탭에서 바로 일정 만들기 (친구 초대는 위쪽 👥 멤버·초대)
+        switchView('timeline'); // 타임라인 탭에서 바로 일정 만들기 (친구 초대는 위쪽 👥)
         await refresh(true);
-        toast('기록장을 만들었어요. 일정을 만들어 보세요 ✨');
+        toast('여행을 만들었어요. 일정을 만들어 보세요 ✨');
       }
     } catch (err) { toast(err.message); btn.disabled = false; }
   };
+}
+
+// ---------- 여행 정보 더 넣기 (선택): 국가·도시·유형·스타일·교통·예산·대표 사진 ----------
+// 스타일·교통·예산은 AI 일정 조건(trip_plans.prefs)에 저장해서 AI 일정 만들기·예산 화면이 같이 써요
+function tripMoreHtml(trip) {
+  const P = window.PlannerShared || {};
+  const photos = trip ? state.places.filter((p) => p.trip_id === trip.id).flatMap((p) => p.photos.map((ph) => ({ ...ph, place: p.name }))) : [];
+  const has = trip && (trip.country || trip.cities?.length || trip.party_type || trip.cover_photo_id);
+  return `<details class="more-info" ${has ? 'open' : ''}>
+    <summary>여행 정보 더 넣기 <small>(선택)</small></summary>
+    ${state.v007 ? `<div class="grid2">
+      <label class="field"><span>국가</span><input name="country" list="countryList" maxlength="40" value="${esc(trip?.country || '')}" placeholder="예: 일본"></label>
+      <label class="field"><span>도시 <small>쉼표로 여러 곳</small></span><input name="cities" maxlength="200" value="${esc((trip?.cities || []).join(', '))}" placeholder="예: 도쿄, 오사카"></label>
+    </div>
+    <datalist id="countryList">${COUNTRIES.map((c) => `<option value="${c}">`).join('')}</datalist>
+    <div class="field"><span>여행 유형</span><div class="cats">
+      <label><input type="radio" name="party_type" value="" ${trip?.party_type ? '' : 'checked'}><span>선택 안 함</span></label>
+      ${Object.entries(PARTY).map(([k, l]) => `<label><input type="radio" name="party_type" value="${k}" ${trip?.party_type === k ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></div>` : ''}
+    ${P.STYLES ? `<div class="field"><span>여행 스타일</span><div class="cats" id="tpStyles">${Object.entries(P.STYLES).map(([k, l]) => `<label><input type="checkbox" name="styles" value="${k}"><span>${l}</span></label>`).join('')}</div></div>
+    <div class="grid2">
+      <label class="field"><span>교통</span><select name="transport"><option value="">선택 안 함</option>${Object.entries(P.TRANSPORTS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+      <div class="field"><span>예산</span><div class="budget-in"><input type="number" name="budget" min="0" step="any" inputmode="numeric" placeholder="원" aria-label="예산 금액"><select name="budget_scope" aria-label="예산 기준"><option value="PER_PERSON">1인</option><option value="TOTAL">전체</option></select></div></div>
+    </div>` : ''}
+    ${state.v007 && trip ? (photos.length ? `<div class="field"><span>대표 사진</span><div class="cover-pick">
+        <label><input type="radio" name="cover_photo_id" value="" ${trip.cover_photo_id ? '' : 'checked'}><span class="cover-auto">자동<br><small>첫 사진</small></span></label>
+        ${photos.slice(0, 40).map((ph) => `<label><input type="radio" name="cover_photo_id" value="${ph.id}" ${trip.cover_photo_id === ph.id ? 'checked' : ''}><img src="${esc(ph.thumb)}" alt="${esc(ph.place)}"></label>`).join('')}</div></div>`
+      : `<small class="hint">대표 사진은 이 여행을 고른 상태에서, 사진을 올린 뒤 고를 수 있어요.</small>`) : ''}
+    <small class="hint">스타일·교통·예산은 AI 일정 만들기와 예산 화면에서도 같이 써요.</small>
+  </details>`;
+}
+function readTripPrefs(f) {
+  if (!f.transport) return null;
+  const styles = [...f.querySelectorAll('[name=styles]:checked')].map((x) => x.value);
+  let budget = null;
+  if (f.budget.value !== '') {
+    const amount = Number(f.budget.value);
+    if (!Number.isFinite(amount) || amount < 0) return { budget: 'bad' };
+    budget = { amount, currency: 'KRW', scope: f.budget_scope.value };
+  }
+  return { styles, transport: f.transport.value || null, budget };
+}
+async function loadTripPrefs(tripId, f) {
+  if (!f.transport) return;
+  try {
+    const r = await sb.from('trip_plans').select('prefs').eq('trip_id', tripId).maybeSingle();
+    const pr = r.data?.prefs || {};
+    if (!f.isConnected) return;
+    (pr.styles || []).forEach((s) => { const c = f.querySelector(`[name=styles][value="${s}"]`); if (c) c.checked = true; });
+    if (pr.transport) f.transport.value = pr.transport;
+    if (pr.budget?.amount != null) { f.budget.value = pr.budget.amount; f.budget_scope.value = pr.budget.scope || 'PER_PERSON'; }
+    if (pr.styles?.length || pr.transport || pr.budget) f.querySelector('.more-info').open = true;
+  } catch { /* 004 전이면 없음 */ }
+}
+/** 기존 AI 조건에 합쳐서 저장 (여행지·인원은 비어 있을 때만 여행 정보로 채움). 실패해도 여행 저장은 그대로 */
+async function saveTripPrefs(tripId, more, data) {
+  if (!more) return;
+  try {
+    const r = await sb.from('trip_plans').select('prefs').eq('trip_id', tripId).maybeSingle();
+    const old = r.data?.prefs || {};
+    const place = [splitList(data.cities).join(', '), String(data.country || '').trim()].filter(Boolean).join(', ');
+    const prefs = {
+      ...old, styles: more.styles, transport: more.transport || old.transport || null, budget: more.budget,
+      destination: old.destination || place || undefined,
+      travelerCount: old.travelerCount || PARTY_PEOPLE[data.party_type] || undefined,
+    };
+    const res = await sb.rpc('save_plan_prefs', { p_trip_id: tripId, p_prefs: prefs });
+    if (res.error) throw res.error;
+  } catch { /* AI 조건 저장 실패는 조용히 (여행 저장은 이미 됨) */ }
 }
 
 async function copyText(text, input) {
@@ -2095,7 +2184,7 @@ async function copyText(text, input) {
 async function openInviteLink(trip, reset = false) {
   const inv = await db.createInvite(trip.id, reset);
   const url = `${APP_URL}?invite=${encodeURIComponent(inv.token)}`;
-  const text = `‘${trip.title}’ 기록장에 초대할게요! 링크를 눌러 가입하면 같이 기록할 수 있어요.`;
+  const text = `‘${trip.title}’ 여행에 초대할게요! 링크를 눌러 가입하면 같이 기록할 수 있어요.`;
   const daysLeft = Math.max(1, Math.ceil((Date.parse(inv.expires_at) - Date.now()) / 86400000));
   const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
   const isOwner = trip.owner_id === state.me.id;
@@ -2108,7 +2197,7 @@ async function openInviteLink(trip, reset = false) {
     <div class="btn-row">
       ${navigator.share ? '<button class="btn" data-act="share">📤 공유하기</button>' : ''}
       <button class="btn" data-act="copy">📋 링크 복사</button>
-      <button class="btn" data-act="back">← 기록장으로</button>
+      <button class="btn" data-act="back">← 여행으로</button>
     </div>
     ${isOwner ? `<div class="divider"></div>
       <button class="link" data-act="reset" style="color:var(--danger)">링크 새로 만들기</button>
@@ -2151,15 +2240,15 @@ function openTrip(id) {
         ${isOwner && m.id !== t.owner_id ? `<button data-kick="${m.id}">내보내기</button>` : ''}
       </div>`).join('')}</div>
     <button class="primary" data-act="invite" style="margin-top:14px">🔗 초대 링크 보내기</button>
-    <small class="hint">카톡 등으로 링크를 보내면, 친구가 누르고 가입하는 즉시 이 기록장에 들어와요.</small>
+    <small class="hint">카톡 등으로 링크를 보내면, 친구가 누르고 가입하는 즉시 이 여행에 들어와요.</small>
     <form id="inviteForm" style="margin-top:14px">
       <div class="search-row"><input name="username" placeholder="이미 가입한 친구는 아이디로 초대" autocapitalize="off" autocorrect="off" required
         style="padding:12px 14px;border:1px solid var(--line);border-radius:12px;font-size:16px"><button type="submit">초대</button></div>
     </form>
     <div class="divider"></div>
     <div class="btn-row">${isOwner
-      ? '<button class="btn danger" data-act="delete">기록장 삭제</button>'
-      : '<button class="btn danger" data-act="leave">이 기록장에서 나가기</button>'}</div>`);
+      ? '<button class="btn danger" data-act="delete">여행 삭제</button>'
+      : '<button class="btn danger" data-act="leave">이 여행에서 나가기</button>'}</div>`);
 
   $('#inviteForm', body).onsubmit = async (e) => {
     e.preventDefault();
@@ -2177,7 +2266,7 @@ function openTrip(id) {
       if (act === 'invite') {
         await openInviteLink(t);
       } else if (kick) {
-        if (!confirm('이 사람을 기록장에서 내보낼까요? 그 사람이 쓴 기록은 남아요. 초대 링크로 다시 들어오지 못하게 하려면 링크도 새로 만들어 주세요.')) return;
+        if (!confirm('이 사람을 여행에서 내보낼까요? 그 사람이 쓴 기록은 남아요. 초대 링크로 다시 들어오지 못하게 하려면 링크도 새로 만들어 주세요.')) return;
         await db.removeMember(id, kick.dataset.kick);
         await refresh();
         openTrip(id);
@@ -2189,13 +2278,13 @@ function openTrip(id) {
       } else if (act === 'edit') {
         openTripForm(t);
       } else if (act === 'delete') {
-        if (!confirm(`'${t.title}' 기록장의 모든 기록, 사진, 한마디가 삭제돼요. 되돌릴 수 없어요. 삭제할까요?`)) return;
+        if (!confirm(`'${t.title}' 여행의 모든 기록, 사진, 한마디가 삭제돼요. 되돌릴 수 없어요. 삭제할까요?`)) return;
         await db.deleteTrip(id);
         closeSheet();
-        toast('기록장을 삭제했어요');
+        toast('여행을 삭제했어요');
         refresh(true);
       } else if (act === 'leave') {
-        if (!confirm('이 기록장에서 나갈까요?')) return;
+        if (!confirm('이 여행에서 나갈까요?')) return;
         await db.removeMember(id, state.me.id);
         closeSheet();
         refresh(true);

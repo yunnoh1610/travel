@@ -69,7 +69,8 @@
     if (t === 'trip_list') {
       const ps = db.places.filter((p) => p.trip_id === r.id);
       const ph = db.photos.filter((x) => ps.some((p) => p.id === x.place_id)).sort((a, b) => a.id - b.id)[0];
-      return { ...r, place_count: ps.length, cover_path: ph?.thumb_path || null };
+      const chosen = r.cover_photo_id && db.photos.find((x) => x.id === r.cover_photo_id);
+      return { ...r, place_count: ps.length, cover_path: chosen?.thumb_path || ph?.thumb_path || null };
     }
     if (t === 'trip_members') { const p = db.profiles.find((x) => x.id === r.user_id); return { ...r, profiles: { name: p?.name, username: p?.username } }; }
     if (t === 'places') {
@@ -102,6 +103,10 @@
       if (!table) return err(`Could not find the table 'public.${this.t}'`, 'PGRST205');
       // MOCK.no005 = true → migrate-005 전 DB 흉내 (새 칸이 없음)
       const new005 = /visited_time|plan_item_id|taken_at/;
+      const new007 = /country|cities|party_type|cover_photo_id/;
+      if (window.MOCK.no007 && src === 'trips' && (new007.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new007.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new007.test(k))))) {
+        return err('column trips.country does not exist', '42703');
+      }
       if (window.MOCK.no005 && (new005.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new005.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new005.test(k))))) {
         return err('column places.visited_time does not exist', '42703');
       }
@@ -306,7 +311,7 @@
       async signInWithPassword() { return { data: { session: { user: ME } }, error: null }; },
     },
   };
-  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
+  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), no007: /no007/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
   window.supabase = { createClient: () => client };
   window.TRAVEL_CONFIG = { url: 'https://mock.local', key: 'mock' };
 })();
