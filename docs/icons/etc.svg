@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="etc-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFD25F"/><stop offset="1" stop-color="#F2297A"/>
+    </linearGradient>
+    <linearGradient id="etc-glass" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="etc-edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".2"/>
+    </linearGradient>
+    <filter id="etc-blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <filter id="etc-shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="etc-clip"><path d="M22 22c2.4 12 8 17.6 20 20-12 2.4-17.6 8-20 20-2.4-12-8-17.6-20-20 12-2.4 17.6-8 20-20z"/></clipPath>
+    <g id="etc-back"><path d="M40 4c2 11 7 16 18 18-11 2-16 7-18 18-2-11-7-16-18-18 11-2 16-7 18-18z"/></g>
+  </defs>
+  <g opacity=".45" transform="translate(0 5)" filter="url(#etc-shadow)" fill="#FF7A59"><path d="M22 22c2.4 12 8 17.6 20 20-12 2.4-17.6 8-20 20-2.4-12-8-17.6-20-20 12-2.4 17.6-8 20-20z"/></g>
+  <use xlink:href="#etc-back" fill="url(#etc-g)"/>
+  <g fill="url(#etc-g)" opacity=".38"><path d="M22 22c2.4 12 8 17.6 20 20-12 2.4-17.6 8-20 20-2.4-12-8-17.6-20-20 12-2.4 17.6-8 20-20z"/></g>
+  <g clip-path="url(#etc-clip)">
+    <use xlink:href="#etc-back" fill="url(#etc-g)" filter="url(#etc-blur)"/>
+  </g>
+  <g fill="url(#etc-glass)" stroke="url(#etc-edge)" stroke-width=".9"><path d="M22 22c2.4 12 8 17.6 20 20-12 2.4-17.6 8-20 20-2.4-12-8-17.6-20-20 12-2.4 17.6-8 20-20z"/></g>
+  
+</svg>

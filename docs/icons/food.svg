@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="food-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFC93D"/><stop offset="1" stop-color="#FF5F00"/>
+    </linearGradient>
+    <linearGradient id="food-glass" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="food-edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".2"/>
+    </linearGradient>
+    <filter id="food-blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <filter id="food-shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="food-clip"><path d="M6 30h48c0 14-10.7 24-24 24S6 44 6 30z"/></clipPath>
+    <g id="food-back"><circle cx="34" cy="22" r="16"/><path d="M40 4l14 22" stroke="#E85A00" stroke-width="3.5" stroke-linecap="round"/></g>
+  </defs>
+  <g opacity=".45" transform="translate(0 5)" filter="url(#food-shadow)" fill="#FF8A00"><path d="M6 30h48c0 14-10.7 24-24 24S6 44 6 30z"/></g>
+  <use xlink:href="#food-back" fill="url(#food-g)"/>
+  <g fill="url(#food-g)" opacity=".38"><path d="M6 30h48c0 14-10.7 24-24 24S6 44 6 30z"/></g>
+  <g clip-path="url(#food-clip)">
+    <use xlink:href="#food-back" fill="url(#food-g)" filter="url(#food-blur)"/>
+  </g>
+  <g fill="url(#food-glass)" stroke="url(#food-edge)" stroke-width=".9"><path d="M6 30h48c0 14-10.7 24-24 24S6 44 6 30z"/></g>
+  <path d="M16 38c3-2 6 2 9 0s6 2 9 0 6 2 9 0" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+</svg>

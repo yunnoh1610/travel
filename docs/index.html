@@ -15,19 +15,20 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Gowun+Dodum&display=swap">
   <link rel="stylesheet" href="app.css">
   <!-- 테마: id가 themeCss-○○ 인 파일 중 고른 것만 켜져요. 새 테마는 같은 방식으로 추가 -->
+  <link rel="stylesheet" href="theme-glass.css" id="themeCss-glass">
   <link rel="stylesheet" href="theme-sketch.css" id="themeCss-sketch">
   <link rel="stylesheet" href="theme-passport.css" id="themeCss-passport">
   <script>
-    // 저장해 둔 테마를 화면을 그리기 전에 적용 (깜빡임 방지). 기본은 청량 스케치북
+    // 저장해 둔 테마를 화면을 그리기 전에 적용 (깜빡임 방지). 고른 적 없으면 보라 글래스 (app.js 의 DEFAULT_THEME 과 같게)
     (function () {
-      var t = 'sketch';
-      try { t = localStorage.getItem('travelTheme') || 'sketch'; } catch (e) {}
+      var t = 'glass';
+      try { t = localStorage.getItem('travelTheme') || 'glass'; } catch (e) {}
       document.documentElement.dataset.theme = t;
       var links = document.querySelectorAll('link[id^="themeCss-"]');
       for (var i = 0; i < links.length; i++) links[i].disabled = links[i].id !== 'themeCss-' + t;
       var m = document.querySelector('meta[name=theme-color]');
-      var colors = { sketch: '#2aa7d9', passport: '#2f6f9f', basic: '#0f766e' };
-      if (m) m.setAttribute('content', colors[t] || colors.sketch);
+      var colors = { glass: '#7203FF', sketch: '#2aa7d9', passport: '#2f6f9f', basic: '#0f766e' };
+      if (m) m.setAttribute('content', colors[t] || colors.glass);
     })();
   </script>
 </head>
@@ -69,11 +70,11 @@
         </div>
       </section>
     </main>
-    <button id="fab" class="fab" aria-label="장소 기록하기">＋</button>
+    <button id="fab" class="fab" aria-label="장소 기록하기"><i class="emo">＋</i><img class="gi" src="icons/add.svg" alt=""></button>
     <nav class="tabbar">
-      <button data-view="map" class="on"><span>🗺️</span>지도</button>
-      <button data-view="timeline"><span>🕒</span>타임라인</button>
-      <button data-view="trips"><span>📒</span>기록장</button>
+      <button data-view="map" class="on"><span><i class="emo">🗺️</i><img class="gi" src="icons/map.svg" alt=""></span>지도</button>
+      <button data-view="timeline"><span><i class="emo">🕒</i><img class="gi" src="icons/timeline.svg" alt=""></span>타임라인</button>
+      <button data-view="trips"><span><i class="emo">📒</i><img class="gi" src="icons/book.svg" alt=""></span>기록장</button>
     </nav>
   </div>
 

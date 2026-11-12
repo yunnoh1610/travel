@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="map-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF8A3D"/><stop offset="1" stop-color="#F2297A"/>
+    </linearGradient>
+    <linearGradient id="map-glass" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="map-edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".2"/>
+    </linearGradient>
+    <filter id="map-blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <filter id="map-shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="map-clip"><path d="M6 24l13-5 13 5 13-5v33l-13 5-13-5-13 5z" stroke-linejoin="round"/></clipPath>
+    <g id="map-back"><path d="M44 6c-7.7 0-14 6-14 13.5C30 30 44 42 44 42s14-12 14-22.5C58 12 51.7 6 44 6z"/></g>
+  </defs>
+  <g opacity=".45" transform="translate(0 5)" filter="url(#map-shadow)" fill="#F24E7A"><path d="M6 24l13-5 13 5 13-5v33l-13 5-13-5-13 5z" stroke-linejoin="round"/></g>
+  <use xlink:href="#map-back" fill="url(#map-g)"/>
+  <g fill="url(#map-g)" opacity=".38"><path d="M6 24l13-5 13 5 13-5v33l-13 5-13-5-13 5z" stroke-linejoin="round"/></g>
+  <g clip-path="url(#map-clip)">
+    <use xlink:href="#map-back" fill="url(#map-g)" filter="url(#map-blur)"/>
+  </g>
+  <g fill="url(#map-glass)" stroke="url(#map-edge)" stroke-width=".9"><path d="M6 24l13-5 13 5 13-5v33l-13 5-13-5-13 5z" stroke-linejoin="round"/></g>
+  <path d="M19 19v33M32 24v33" stroke="#fff" stroke-opacity=".8" stroke-width="1.4" fill="none"/>
+</svg>

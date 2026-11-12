@@ -8,20 +8,32 @@ const CATS = {
   sight: ['📍', '관광'], food: ['🍜', '맛집'], cafe: ['☕', '카페'],
   stay: ['🏨', '숙소'], nature: ['🌿', '자연'], etc: ['✨', '기타'],
 };
-const catIcon = (c) => (CATS[c] || CATS.etc)[0];
-const catLabel = (c) => (CATS[c] || CATS.etc).join(' ');
+// 글래스 테마에서는 이모지 대신 icons/*.svg 그림을 씀 (다른 테마는 이모지 그대로)
+const GLASS_ICONS = {
+  '📍': 'sight', '🍜': 'food', '☕': 'cafe', '🏨': 'stay', '🌿': 'nature', '✨': 'etc',
+  '🧳': 'trip', '🎉': 'gathering', '📒': 'book', '🗺️': 'map',
+};
+const ic = (emoji) => (currentTheme === 'glass' && GLASS_ICONS[emoji]
+  ? `<img class="ic" src="icons/${GLASS_ICONS[emoji]}.svg" alt="">` : emoji);
+const catIcon = (c) => ic((CATS[c] || CATS.etc)[0]);
+const catLabel = (c) => `${catIcon(c)} ${(CATS[c] || CATS.etc)[1]}`;
 // 기록장 종류
 const KINDS = {
   trip: ['🧳', '여행', '예: 2026 오사카 먹방 여행'],
   gathering: ['🎉', '모임·기념일', '예: 우정 10주년 저녁'],
   daily: ['☕', '일상', '예: 2026 우리 동네 맛집'],
 };
-const kindIcon = (k) => (KINDS[k] || KINDS.trip)[0];
+const kindEmoji = (k) => (KINDS[k] || KINDS.trip)[0]; // <option> 안처럼 그림을 못 넣는 곳
+const kindIcon = (k) => ic(kindEmoji(k));
 const kindName = (k) => (KINDS[k] || KINDS.trip)[1];
 
 // 화면 테마 (내 정보에서 고르기)
 // css 파일은 index.html 의 <link id="themeCss-키">. 'basic'은 테마 파일 없이 기본 디자인
 const THEMES = {
+  glass: {
+    name: '보라 글래스', icon: '💜', desc: '보라·초록 포인트, 유리처럼 맑은 아이콘', color: '#7203FF', route: '#7203FF',
+    swatch: ['#7203FF', '#0BCE83', '#D6B6FF', '#F6F5F5'],
+  },
   sketch: { name: '청량 스케치북', icon: '✏️', desc: '하늘색·민트, 모눈 종이와 손글씨', color: '#2aa7d9', route: '#1479a8', swatch: ['#2aa7d9', '#5fd3bf', '#fff1a1', '#fbfaf4'] },
   passport: {
     // 청량한 빈티지 트래블 스크랩북 (예전 이름: 여권 스크랩북 — 저장된 설정을 그대로 쓰려고 키는 passport 유지)
@@ -36,7 +48,8 @@ const THEMES = {
   basic: { name: '기본', icon: '🌿', desc: '차분한 초록, 깔끔한 글꼴', color: '#0f766e', route: '#0f766e', swatch: ['#0f766e', '#e6f4f1', '#ffffff', '#f6f7f5'] },
 };
 const THEME_KEY = 'travelTheme';
-let currentTheme = THEMES[document.documentElement.dataset.theme] ? document.documentElement.dataset.theme : 'sketch';
+const DEFAULT_THEME = 'glass'; // 테마를 고른 적 없는 사람에게 보이는 테마 (index.html 과 같게)
+let currentTheme = THEMES[document.documentElement.dataset.theme] ? document.documentElement.dataset.theme : DEFAULT_THEME;
 const routeColor = () => (THEMES[currentTheme] || THEMES.sketch).route;
 // 테마에 맞는 경로선 그리기 (여러 겹이면 겹쳐서)
 function drawRoute(points, layer) {
@@ -45,13 +58,14 @@ function drawRoute(points, layer) {
   for (const style of lines) L.polyline(points, { ...style, interactive: false }).addTo(layer);
 }
 function applyTheme(t) {
-  if (!THEMES[t]) t = 'sketch';
+  if (!THEMES[t]) t = DEFAULT_THEME;
   currentTheme = t;
   document.documentElement.dataset.theme = t;
   document.querySelectorAll('link[id^="themeCss-"]').forEach((l) => { l.disabled = l.id !== `themeCss-${t}`; });
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', THEMES[t].color);
   try { localStorage.setItem(THEME_KEY, t); } catch { /* 저장 불가 */ }
-  if (typeof map !== 'undefined' && map && state.me) renderMap(false); // 지도 경로선 색
+  // 지도 경로선 색과 아이콘(글래스 테마는 그림 아이콘)을 다시 그림
+  if (typeof map !== 'undefined' && map && state.me) { renderFilter(); renderMap(false); renderTimeline(); renderTrips(); }
 }
 function themePicker() {
   return `<div class="theme-list">${Object.entries(THEMES).map(([k, t]) => `
@@ -203,7 +217,13 @@ const db = {
     }));
   },
   async createTrip(f) {
-    const row = await q(sb.from('trips').insert(tripFields(f)).select('id').single());
+    const fields = tripFields(f);
+    // 연타·네트워크 재전송으로 같은 기록장이 두 번 생기지 않게: 10초 안에 만든 같은 이름이 있으면 그걸 씀
+    const since = new Date(Date.now() - 10e3).toISOString();
+    const dup = await q(sb.from('trips').select('id').eq('owner_id', state.me.id).eq('title', fields.title)
+      .gte('created_at', since).order('id', { ascending: false }).limit(1));
+    if (dup.length) return dup[0].id;
+    const row = await q(sb.from('trips').insert(fields).select('id').single());
     return row.id;
   },
   updateTrip: (id, f) => qChanged(sb.from('trips').update(tripFields(f)).eq('id', id).select('id')),
@@ -221,31 +241,45 @@ const db = {
     return rows[0];
   },
   removeMember: (tripId, userId) =>qChanged(sb.from('trip_members').delete().eq('trip_id', tripId).eq('user_id', userId).select('user_id')),
-  async createPlace(tripId, f, items) {
+  /** 장소를 만들고 사진을 올림. 사진 일부가 실패해도 장소와 성공한 사진은 남기고 { id, sent, failed } 를 돌려줌 */
+  async createPlace(tripId, f, items, onProgress) {
     const row = await q(sb.from('places').insert({ trip_id: tripId, ...f }).select('id').single());
-    if (items.length) await db.uploadPhotos(tripId, row.id, items);
-    return row.id;
+    const r = items.length ? await db.uploadPhotos(tripId, row.id, items, onProgress) : { sent: 0, failed: 0 };
+    return { id: row.id, ...r };
   },
-  async uploadPhotos(tripId, placeId, items) {
-    const uploaded = [];
-    const rows = [];
-    try {
-      for (const it of items) {
+  /** 사진을 UPLOAD_PARALLEL장씩 동시에 올림. 실패한 장은 한 번 더 시도하고, 성공한 것만 고른 순서대로 저장 */
+  async uploadPhotos(tripId, placeId, items, onProgress) {
+    const opts = { contentType: 'image/jpeg', cacheControl: '31536000', upsert: false };
+    const rows = new Array(items.length);
+    let done = 0;
+    let lastError = null;
+    await runPool(items, UPLOAD_PARALLEL, async (it, i) => {
+      for (let attempt = 0; attempt < 2 && !rows[i]; attempt++) {
         const base = `${tripId}/${crypto.randomUUID()}`;
         const path = `${base}.jpg`;
         const thumb = `${base}_t.jpg`;
-        const opts = { contentType: 'image/jpeg', cacheControl: '31536000', upsert: false };
-        await Promise.all([
-          q(sb.storage.from(BUCKET).upload(path, it.photo, opts)).then(() => uploaded.push(path)),
-          q(sb.storage.from(BUCKET).upload(thumb, it.thumb, opts)).then(() => uploaded.push(thumb)),
+        const res = await Promise.allSettled([
+          q(sb.storage.from(BUCKET).upload(path, it.photo, opts)),
+          q(sb.storage.from(BUCKET).upload(thumb, it.thumb, opts)),
         ]);
-        rows.push({ place_id: placeId, path, thumb_path: thumb });
+        if (res.every((x) => x.status === 'fulfilled')) rows[i] = { place_id: placeId, path, thumb_path: thumb };
+        else {
+          lastError = res.find((x) => x.status === 'rejected').reason;
+          const left = [path, thumb].filter((_, k) => res[k].status === 'fulfilled');
+          if (left.length) await sb.storage.from(BUCKET).remove(left).catch(() => {});
+        }
       }
-      await q(sb.from('photos').insert(rows));
-    } catch (e) {
-      if (uploaded.length) await sb.storage.from(BUCKET).remove(uploaded).catch(() => {});
-      throw e;
+      onProgress?.(++done, items.length);
+    });
+    const ok = rows.filter(Boolean);
+    if (ok.length) {
+      try { await q(sb.from('photos').insert(ok)); } catch (e) {
+        await sb.storage.from(BUCKET).remove(ok.flatMap((r) => [r.path, r.thumb_path])).catch(() => {});
+        throw e;
+      }
     }
+    if (!ok.length && lastError) throw lastError;
+    return { sent: ok.length, failed: items.length - ok.length, error: lastError };
   },
   updatePlace: (id, f) => qChanged(sb.from('places').update(f).eq('id', id).select('id')),
   async deletePlace(p) {
@@ -504,6 +538,37 @@ function showPhoto(src) {
 // ---------- 사진 처리: EXIF 읽기 + 용량 줄이기 ----------
 const PHOTO_MAX = 1600; // 긴 변 기준 px
 const THUMB_MAX = 480;
+const MAX_PHOTOS = 100;     // 장소 하나에 올릴 수 있는 사진 수
+const PROCESS_PARALLEL = 3; // 동시에 줄이는 사진 수 (폰 메모리 고려)
+const UPLOAD_PARALLEL = 4;  // 동시에 올리는 사진 수
+
+/** items를 최대 limit개씩 동시에 처리 */
+async function runPool(items, limit, fn) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+/** 사진 여러 장을 동시에 줄임. 열 수 없는 사진은 빼고 고른 순서대로 돌려줌 */
+async function processPhotos(files, onProgress, quiet = false) {
+  const out = new Array(files.length);
+  let done = 0;
+  let lastError = null;
+  await runPool(files, PROCESS_PARALLEL, async (f, i) => {
+    try { out[i] = await processPhoto(f); } catch (err) { lastError = err; }
+    onProgress?.(++done, files.length, out[i]);
+  });
+  const items = out.filter(Boolean);
+  if (lastError && !quiet) toast(items.length ? `열 수 없는 사진 ${files.length - items.length}장은 뺐어요` : lastError.message);
+  return items;
+}
+const uploadResultMsg = (r, okMsg) => (r.failed
+  ? `사진 ${r.failed}장은 못 올렸어요 (${r.error?.message || '연결 확인'}). 장소를 눌러 다시 추가해 주세요`
+  : okMsg);
 
 async function loadImage(file) {
   try {
@@ -518,25 +583,29 @@ async function loadImage(file) {
     } finally { URL.revokeObjectURL(url); }
   }
 }
-function resizeJpeg(img, max, quality) {
-  const s = Math.min(1, max / Math.max(img.width, img.height));
+function drawScaled(src, max) {
+  const s = Math.min(1, max / Math.max(src.width, src.height));
   const c = document.createElement('canvas');
-  c.width = Math.round(img.width * s);
-  c.height = Math.round(img.height * s);
+  c.width = Math.round(src.width * s);
+  c.height = Math.round(src.height * s);
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, c.width, c.height);
-  ctx.drawImage(img, 0, 0, c.width, c.height);
-  return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('변환 실패'))), 'image/jpeg', quality));
+  ctx.drawImage(src, 0, 0, c.width, c.height);
+  return c;
 }
+const toJpeg = (c, quality) => new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('변환 실패'))), 'image/jpeg', quality));
 /** 원본 사진 → { photo, thumb, gps, date, before, after }. 캔버스로 다시 그려서 EXIF(위치 포함)는 업로드 파일에서 빠짐 */
 async function processPhoto(file) {
   let meta = null;
   try { meta = await window.exifr?.parse(file, { gps: true }); } catch { /* EXIF 없음 */ }
   let img;
   try { img = await loadImage(file); } catch { throw new Error('이 사진 형식은 열 수 없어요 (JPG/PNG로 시도해 주세요)'); }
-  const [photo, thumb] = await Promise.all([resizeJpeg(img, PHOTO_MAX, 0.82), resizeJpeg(img, THUMB_MAX, 0.75)]);
+  const big = drawScaled(img, PHOTO_MAX);
   img.close?.();
+  const small = drawScaled(big, THUMB_MAX);
+  const [photo, thumb] = await Promise.all([toJpeg(big, 0.82), toJpeg(small, 0.75)]);
+  big.width = big.height = small.width = small.height = 0; // 폰 메모리 바로 반환
   const gps = meta && Number.isFinite(meta.latitude) && Number.isFinite(meta.longitude)
     && !(meta.latitude === 0 && meta.longitude === 0)
     ? { lat: meta.latitude, lng: meta.longitude } : null;
@@ -706,7 +775,7 @@ function renderFilter() {
   const sel = $('#tripFilter');
   const total = state.trips.reduce((n, t) => n + t.place_count, 0);
   sel.innerHTML = `<option value="all">🌏 모든 기록장 (${total})</option>`
-    + state.trips.map((t) => `<option value="${t.id}">${kindIcon(t.kind)} ${esc(t.title)} (${t.place_count})</option>`).join('');
+    + state.trips.map((t) => `<option value="${t.id}">${kindEmoji(t.kind)} ${esc(t.title)} (${t.place_count})</option>`).join('');
   sel.value = String(state.filter);
 }
 $('#tripFilter').onchange = (e) => {
@@ -755,7 +824,7 @@ function placeCard(p) {
 function renderTimeline() {
   const el = $('#timeline');
   if (!state.places.length) {
-    el.innerHTML = '<div class="empty"><div class="big">🗺️</div>아직 기록이 없어요</div>';
+    el.innerHTML = `<div class="empty"><div class="big">${ic('🗺️')}</div>아직 기록이 없어요</div>`;
     return;
   }
   const sorted = [...state.places].sort(byVisit).reverse();
@@ -786,7 +855,7 @@ function renderTrips() {
           <small>${kindIcon(t.kind)} ${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳</small>
           <small>👥 ${t.members.map((m) => esc(m.name)).join(', ')}</small>
         </div></button>`).join('')
-    : '<div class="empty"><div class="big">📒</div>첫 기록장을 만들어 보세요<br><small>여행, 모임·기념일, 일상 중에 골라요</small></div>';
+    : `<div class="empty"><div class="big">${ic('📒')}</div>첫 기록장을 만들어 보세요<br><small>여행, 모임·기념일, 일상 중에 골라요</small></div>`;
 }
 $('#tripList').onclick = (e) => {
   const c = e.target.closest('[data-trip]');
@@ -923,7 +992,7 @@ function openPlace(id) {
       <span>${kindIcon(trip?.kind)} ${esc(p.trip_title)}</span>
     </div>
     <div class="btn-row">
-      <button class="btn" data-act="locate">🗺️ 지도에서 보기</button>
+      <button class="btn" data-act="locate">${ic('🗺️')} 지도에서 보기</button>
       <label class="btn">📷 사진 추가<input type="file" accept="image/*" multiple hidden></label>
       ${canEdit ? '<button class="btn" data-act="edit">✏️ 수정</button><button class="btn danger" data-act="delete">삭제</button>' : ''}
     </div>
@@ -1013,16 +1082,18 @@ function openPlace(id) {
     }
   };
   $('input[type=file]', body).onchange = async (e) => {
-    const files = [...e.target.files].slice(0, 10);
+    let files = [...e.target.files];
     e.target.value = '';
+    const room = MAX_PHOTOS - p.photos.length;
+    if (files.length > room) toast(`한 장소에는 사진을 ${MAX_PHOTOS}장까지 올릴 수 있어요`);
+    files = files.slice(0, Math.max(0, room));
     if (!files.length) return;
-    if (p.photos.length + files.length > 30) return toast('한 장소에는 사진을 30장까지 올릴 수 있어요');
-    toast(`사진 ${files.length}장을 줄여서 올리는 중…`);
-    const items = [];
+    let items = [];
     try {
-      for (const f of files) items.push(await processPhoto(f));
-      await db.uploadPhotos(p.trip_id, p.id, items);
-      toast('사진을 추가했어요');
+      items = await processPhotos(files, (n, total) => toast(`사진 줄이는 중… ${n}/${total}`));
+      if (!items.length) return;
+      const r = await db.uploadPhotos(p.trip_id, p.id, items, (n, total) => toast(`사진 올리는 중… ${n}/${total}`));
+      toast(uploadResultMsg(r, `사진 ${r.sent}장을 추가했어요`));
       await refresh();
       openPlace(id);
     } catch (err) { toast(err.message); } finally { items.forEach((it) => URL.revokeObjectURL(it.preview)); }
@@ -1030,8 +1101,8 @@ function openPlace(id) {
 }
 
 function catPicker(selected) {
-  return `<div class="cats">${Object.entries(CATS).map(([k, [ic, label]]) => `<label>
-    <input type="radio" name="category" value="${k}" ${k === selected ? 'checked' : ''}><span>${ic} ${label}</span></label>`).join('')}</div>`;
+  return `<div class="cats">${Object.entries(CATS).map(([k, [, label]]) => `<label>
+    <input type="radio" name="category" value="${k}" ${k === selected ? 'checked' : ''}><span>${catIcon(k)} ${label}</span></label>`).join('')}</div>`;
 }
 
 function openEditPlace(p) {
@@ -1141,7 +1212,7 @@ function openBulkImport() {
 
   const body = openSheet(`<h2>사진으로 한꺼번에 기록</h2>
     <p class="muted" style="margin-top:-6px">그날 찍은 사진을 한 번에 고르면, 찍은 위치별로 장소를 나눠서 기록해 줘요.</p>
-    <label class="field"><span>기록장</span><select name="trip" id="bulkTrip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindIcon(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
+    <label class="field"><span>기록장</span><select name="trip" id="bulkTrip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
     <label class="primary pick-btn">📷 사진 고르기 (최대 ${BULK_MAX}장)<input type="file" accept="image/*" multiple hidden id="bulkInput"></label>
     <small class="hint">아이폰은 사진 고르는 화면 위쪽 <b>옵션</b>에서 <b>위치</b>를 켜야 위치 정보가 함께 와요.</small>
     <div id="bulkStatus" class="bulk-status hidden"></div>
@@ -1170,12 +1241,10 @@ function openBulkImport() {
     bmap = null;
     $('#bulkReview', body).innerHTML = '';
     const list = files.slice(0, BULK_MAX);
-    let failed = 0;
-    for (let i = 0; i < list.length; i++) {
-      status(`사진 정리 중… ${i + 1}/${list.length}`);
-      try { items.push(await processPhoto(list[i])); } catch { failed++; }
-      if (!body.isConnected) { items.forEach((it) => URL.revokeObjectURL(it.preview)); return; }
-    }
+    status(`사진 정리 중… 0/${list.length}`);
+    items = await processPhotos(list, (n, total) => { if (body.isConnected) status(`사진 정리 중… ${n}/${total}`); }, true);
+    if (!body.isConnected) { items.forEach((it) => URL.revokeObjectURL(it.preview)); return; }
+    const failed = list.length - items.length;
     busy = false;
     if (failed) toast(`열 수 없는 사진 ${failed}장은 뺐어요`);
     if (!items.length) { status(''); return; }
@@ -1366,23 +1435,25 @@ function openBulkImport() {
     btn.disabled = true;
     let done = 0;
     let firstId = null;
+    let photoFailed = 0;
     try {
       for (const { c, photos } of todo) {
         btn.textContent = `기록하는 중… ${done + 1}/${todo.length}곳`;
         const first = photos.find((p) => p.taken != null);
-        const id = await db.createPlace(tripId, {
+        const { id, failed } = await db.createPlace(tripId, {
           name: (c.name || '').trim() || `장소 ${done + 1}`,
           lat: c.center.lat,
           lng: c.center.lng,
           visited_at: first ? toYMD(new Date(first.taken)) : today(),
           category: c.category,
           comment: c.comment.trim() || null,
-        }, photos.slice(0, 30));
+        }, photos.slice(0, MAX_PHOTOS), (n, total) => { btn.textContent = `기록하는 중… ${done + 1}/${todo.length}곳 · 사진 ${n}/${total}`; });
         firstId ??= id;
+        photoFailed += failed;
         done++;
       }
       closeSheet();
-      toast(`장소 ${done}곳을 기록했어요 📷`);
+      toast(photoFailed ? `장소 ${done}곳을 기록했어요. 사진 ${photoFailed}장은 못 올렸어요` : `장소 ${done}곳을 기록했어요 📷`);
       state.filter = tripId;
       await refresh(true);
       switchView('map');
@@ -1405,6 +1476,7 @@ function openAddPlace() {
     return;
   }
   const defTrip = state.filter !== 'all' ? state.filter : state.trips[0].id;
+  let processing = 0; // 줄이는 중인 사진 묶음 수 (끝나기 전엔 저장 버튼 잠금)
   const pending = [];
   let pos = null;
   let mini = null;
@@ -1414,7 +1486,7 @@ function openAddPlace() {
 
   const body = openSheet(`<h2>장소 기록하기</h2>
     <form id="addForm" autocomplete="off">
-      <label class="field"><span>기록장</span><select name="trip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindIcon(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
+      <label class="field"><span>기록장</span><select name="trip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
       <div class="field"><span>사진 <small id="photoCount"></small></span>
         <div class="photo-strip" id="strip">
           <label class="add-photo">＋<small>사진 선택</small><input type="file" accept="image/*" multiple hidden id="photoInput"></label>
@@ -1520,26 +1592,36 @@ function openAddPlace() {
   };
 
   $('#photoInput', body).onchange = async (e) => {
-    const files = [...e.target.files];
+    let files = [...e.target.files];
     e.target.value = '';
-    for (const file of files) {
-      if (pending.length >= 10) { toast('한 번에 10장까지 올릴 수 있어요'); break; }
-      const loading = document.createElement('div');
-      loading.className = 'ph loading';
-      loading.textContent = '줄이는 중…';
-      strip.querySelector('.add-photo').before(loading);
-      try {
-        const item = await processPhoto(file);
-        if (!body.isConnected) { URL.revokeObjectURL(item.preview); return; }
-        pending.push(item);
+    const room = MAX_PHOTOS - pending.length;
+    if (files.length > room) toast(`한 장소에는 사진을 ${MAX_PHOTOS}장까지 올릴 수 있어요`);
+    files = files.slice(0, Math.max(0, room));
+    if (!files.length) return;
+    const loading = document.createElement('div');
+    loading.className = 'ph loading';
+    loading.textContent = `줄이는 중 0/${files.length}`;
+    strip.querySelector('.add-photo').before(loading);
+    const saveBtn = $('#saveBtn', body);
+    saveBtn.disabled = true;
+    processing++;
+    try {
+      const items = await processPhotos(files, (n, total, item) => {
+        loading.textContent = `줄이는 중 ${n}/${total}`;
+        if (!item || !body.isConnected) return;
         if (item.gps && !pos) {
           setPos(item.gps.lat, item.gps.lng, 16);
           fillNameFrom(item.gps.lat, item.gps.lng);
           toast('사진의 위치 정보로 지도에 표시했어요');
         }
         if (item.date && !dateTouched) form.visited_at.value = item.date;
-      } catch (err) { toast(err.message); } finally { loading.remove(); }
-      renderStrip();
+      });
+      if (!body.isConnected) { items.forEach((it) => URL.revokeObjectURL(it.preview)); return; }
+      pending.push(...items);
+    } finally {
+      loading.remove();
+      if (--processing === 0) saveBtn.disabled = false;
+      if (body.isConnected) renderStrip();
     }
   };
 
@@ -1595,19 +1677,21 @@ function openAddPlace() {
     if (!name) return toast('장소 이름을 입력해 주세요');
     if (!pos) return toast('지도를 눌러 위치를 정해 주세요');
     const btn = $('#saveBtn', body);
+    if (btn.disabled || processing) return;
     btn.disabled = true;
-    btn.textContent = pending.length ? `사진 ${pending.length}장 올리는 중…` : '저장 중…';
+    btn.textContent = pending.length ? `사진 올리는 중… 0/${pending.length}` : '저장 중…';
     try {
       const tripId = Number(form.trip.value);
-      const id = await db.createPlace(tripId, {
+      const r = await db.createPlace(tripId, {
         name, lat: pos.lat, lng: pos.lng,
         visited_at: form.visited_at.value || null,
         category: form.category.value,
         comment: form.comment.value.trim() || null,
         memo: form.memo.value.trim() || null,
-      }, pending);
+      }, pending, (n, total) => { btn.textContent = `사진 올리는 중… ${n}/${total}`; });
+      const id = r.id;
       closeSheet();
-      toast('기록했어요 ✈️');
+      toast(uploadResultMsg(r, '기록했어요 ✈️'));
       if (state.filter !== 'all' && state.filter !== tripId) state.filter = tripId;
       await refresh();
       switchView('map');
@@ -1626,8 +1710,8 @@ function openTripForm(trip) {
   const kind0 = trip?.kind || 'trip';
   const body = openSheet(`<h2>${trip ? '기록장 정보 수정' : '새 기록장 만들기'}</h2>
     <form id="tripForm">
-      <div class="field"><span>종류</span><div class="cats">${Object.entries(KINDS).map(([k, [ic, label]]) => `<label>
-        <input type="radio" name="kind" value="${k}" ${k === kind0 ? 'checked' : ''}><span>${ic} ${label}</span></label>`).join('')}</div></div>
+      <div class="field"><span>종류</span><div class="cats">${Object.entries(KINDS).map(([k, [, label]]) => `<label>
+        <input type="radio" name="kind" value="${k}" ${k === kind0 ? 'checked' : ''}><span>${kindIcon(k)} ${label}</span></label>`).join('')}</div></div>
       <label class="field"><span>이름</span><input name="title" required maxlength="40" value="${esc(trip?.title || '')}"></label>
       <div class="grid2">
         <label class="field"><span id="startLabel">시작일</span><input type="date" name="start_date" value="${esc(trip?.start_date || '')}"></label>
@@ -1648,6 +1732,9 @@ function openTripForm(trip) {
   tf.onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
+    const btn = $('button[type=submit]', f);
+    if (btn.disabled) return; // 연타 방지
+    btn.disabled = true;
     const data = { title: f.title.value, kind: f.kind.value, start_date: f.start_date.value, end_date: f.end_date.value };
     try {
       if (trip) {
@@ -1661,7 +1748,7 @@ function openTripForm(trip) {
         openTrip(id);
         toast('기록장을 만들었어요. 함께한 친구를 초대해 보세요!');
       }
-    } catch (err) { toast(err.message); }
+    } catch (err) { toast(err.message); btn.disabled = false; }
   };
 }
 
@@ -1724,7 +1811,7 @@ function openTrip(id) {
   const body = openSheet(`<h2>${kindIcon(t.kind)} ${esc(t.title)}</h2>
     <p class="muted" style="margin-top:-6px">${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳</p>
     <div class="btn-row">
-      <button class="btn" data-act="view">🗺️ 지도로 보기</button>
+      <button class="btn" data-act="view">${ic('🗺️')} 지도로 보기</button>
       <button class="btn" data-act="edit">✏️ 수정</button>
     </div>
     <div class="divider"></div>

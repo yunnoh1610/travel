@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="nature-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C8F25A"/><stop offset="1" stop-color="#0BB86A"/>
+    </linearGradient>
+    <linearGradient id="nature-glass" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="nature-edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".2"/>
+    </linearGradient>
+    <filter id="nature-blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <filter id="nature-shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="nature-clip"><path d="M6 58C6 38 18 26 40 24c0 22-12 34-34 34z"/></clipPath>
+    <g id="nature-back"><circle cx="44" cy="18" r="13"/><path d="M8 58C8 34 24 18 50 16c0 26-16 42-42 42z"/></g>
+  </defs>
+  <g opacity=".45" transform="translate(0 5)" filter="url(#nature-shadow)" fill="#2CCB6B"><path d="M6 58C6 38 18 26 40 24c0 22-12 34-34 34z"/></g>
+  <use xlink:href="#nature-back" fill="url(#nature-g)"/>
+  <g fill="url(#nature-g)" opacity=".38"><path d="M6 58C6 38 18 26 40 24c0 22-12 34-34 34z"/></g>
+  <g clip-path="url(#nature-clip)">
+    <use xlink:href="#nature-back" fill="url(#nature-g)" filter="url(#nature-blur)"/>
+  </g>
+  <g fill="url(#nature-glass)" stroke="url(#nature-edge)" stroke-width=".9"><path d="M6 58C6 38 18 26 40 24c0 22-12 34-34 34z"/></g>
+  <path d="M8 56L32 32" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+</svg>

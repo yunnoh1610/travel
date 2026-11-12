@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="add-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3EF0A6"/><stop offset="1" stop-color="#06BE77"/>
+    </linearGradient>
+    <linearGradient id="add-glass" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="add-edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".2"/>
+    </linearGradient>
+    <filter id="add-blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <filter id="add-shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="add-clip"><rect x="8" y="18" width="38" height="38" rx="11"/></clipPath>
+    <g id="add-back"><circle cx="42" cy="22" r="16"/></g>
+  </defs>
+  <g opacity=".45" transform="translate(0 5)" filter="url(#add-shadow)" fill="#0BCE83"><rect x="8" y="18" width="38" height="38" rx="11"/></g>
+  <use xlink:href="#add-back" fill="url(#add-g)"/>
+  <g fill="url(#add-g)" opacity=".38"><rect x="8" y="18" width="38" height="38" rx="11"/></g>
+  <g clip-path="url(#add-clip)">
+    <use xlink:href="#add-back" fill="url(#add-g)" filter="url(#add-blur)"/>
+  </g>
+  <g fill="url(#add-glass)" stroke="url(#add-edge)" stroke-width=".9"><rect x="8" y="18" width="38" height="38" rx="11"/></g>
+  <path d="M27 28v18M18 37h18" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+</svg>

@@ -333,3 +333,7 @@ main { flex: 1; position: relative; overflow: hidden; }
 .cm .avatar, .member .avatar { display: flex; font-size: 14px; }
 .gallery { scrollbar-width: none; }
 .gallery::-webkit-scrollbar { display: none; }
+
+/* 테마별 아이콘: 기본은 이모지(.emo), 글래스 테마는 그림(.gi) — theme-glass.css 에서 바꿈 */
+.gi { display: none; }
+.emo { font-style: normal; }

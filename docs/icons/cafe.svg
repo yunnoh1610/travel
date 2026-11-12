@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="cafe-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E3A05A"/><stop offset="1" stop-color="#8A4B22"/>
+    </linearGradient>
+    <linearGradient id="cafe-glass" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="cafe-edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".2"/>
+    </linearGradient>
+    <filter id="cafe-blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <filter id="cafe-shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="cafe-clip"><path d="M8 24h34v18a12 12 0 01-12 12H20A12 12 0 018 42z"/><path d="M42 29h4a7 7 0 010 14h-4v-5h4a2 2 0 000-4h-4z"/></clipPath>
+    <g id="cafe-back"><circle cx="40" cy="20" r="15"/></g>
+  </defs>
+  <g opacity=".45" transform="translate(0 5)" filter="url(#cafe-shadow)" fill="#B8682E"><path d="M8 24h34v18a12 12 0 01-12 12H20A12 12 0 018 42z"/><path d="M42 29h4a7 7 0 010 14h-4v-5h4a2 2 0 000-4h-4z"/></g>
+  <use xlink:href="#cafe-back" fill="url(#cafe-g)"/>
+  <g fill="url(#cafe-g)" opacity=".38"><path d="M8 24h34v18a12 12 0 01-12 12H20A12 12 0 018 42z"/><path d="M42 29h4a7 7 0 010 14h-4v-5h4a2 2 0 000-4h-4z"/></g>
+  <g clip-path="url(#cafe-clip)">
+    <use xlink:href="#cafe-back" fill="url(#cafe-g)" filter="url(#cafe-blur)"/>
+  </g>
+  <g fill="url(#cafe-glass)" stroke="url(#cafe-edge)" stroke-width=".9"><path d="M8 24h34v18a12 12 0 01-12 12H20A12 12 0 018 42z"/><path d="M42 29h4a7 7 0 010 14h-4v-5h4a2 2 0 000-4h-4z"/></g>
+  <path d="M18 14c-2-3 2-5 0-8M26 14c-2-3 2-5 0-8" stroke="#B8682E" stroke-opacity=".7" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+</svg>

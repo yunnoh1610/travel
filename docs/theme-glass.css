@@ -1,0 +1,166 @@
+/* =====================================================================
+   보라 글래스 테마
+   - Delivery App 디자인 시스템(claude.ai/design) 토큰 기반: 보라 강조, 초록 주요 버튼, 라일락 테두리
+   - 이모지 대신 유리 느낌 아이콘(icons/*.svg)
+   - app.css 뒤에 불러와서 색·모양만 덮어써요 (기능·배치는 그대로)
+   ===================================================================== */
+:root {
+  --purple-500: #7203FF;
+  --purple-200: #D6B6FF;
+  --purple-100: #E2CBFF;
+  --ink-900: #2D0C57;
+  --ink-500: #9586A8;
+  --lilac-border: #D9D0E3;
+  --green-500: #0BCE83;
+  --green-600: #06BE77;
+  --gray-50: #F6F5F5;
+  --gray-100: #DBD8DD;
+  --gray-200: #D4D3D3;
+
+  --accent: var(--purple-500);
+  --accent-soft: var(--purple-100);
+  --action: var(--green-500);
+  --action-press: var(--green-600);
+  --bg: var(--gray-50);
+  --card: #ffffff;
+  --media: #F3EEFA;
+  --text: #000000;
+  --heading: var(--ink-900);
+  --muted: var(--ink-500);
+  --line: var(--lilac-border);
+  --input-line: var(--gray-200);
+  --danger: #F24E1E;
+  --radius: 8px;
+  --radius-chip: 17px;
+  --radius-search: 27px;
+  --radius-sheet: 30px;
+  --space-x: 20px;
+  --tabbar-h: 64px;
+  /* SF Pro는 애플 기기에서만 시스템 글꼴로 쓰이고, 그 밖에서는 한글 글꼴로 대체 */
+  --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Segoe UI", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --font-text: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Segoe UI", "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
+
+/* ---------- 바탕·글꼴 ---------- */
+body { font-family: var(--font-text); background: var(--bg); color: var(--text); line-height: 1.5; letter-spacing: -0.2px; }
+h2, h3, .brand, .pd-name, .tl-date, .cm-title { font-family: var(--font-display); color: var(--heading); }
+h2 { font-size: 28px; line-height: 1.3; font-weight: 700; }
+.muted, .hint, .card small, .pd-meta, .bulk-meta, .cands-label { color: var(--muted); }
+
+/* ---------- 아이콘 ---------- */
+.gi { display: block; }
+.emo { display: none; }
+img.ic { width: 1.25em; height: 1.25em; vertical-align: -0.3em; display: inline-block; }
+.pin img.ic { width: 30px; height: 30px; object-fit: contain; }
+.card .thumb img.ic { width: 52px; height: 52px; vertical-align: 0; }
+.empty .big img.ic { width: 72px; height: 72px; vertical-align: 0; margin-bottom: 8px; }
+.cats label span img.ic { width: 20px; height: 20px; vertical-align: -5px; }
+.btn img.ic { width: 20px; height: 20px; vertical-align: -5px; }
+
+/* ---------- 입력칸 ---------- */
+.field > span { font-size: 14px; color: rgba(0,0,0,.5); font-weight: 600; padding-left: 4px; }
+.field input, .field select, .field textarea, .cm-form input, .bulk-name, .bulk-card select, .bulk-card .grid2 input, .link-box {
+  border: 1px solid var(--input-line); border-radius: var(--radius); background: var(--card); font-size: 17px; padding: 14px 16px;
+}
+.grid2 .field input { padding-left: 12px; padding-right: 10px; min-width: 0; }
+.field input:focus, .field select:focus, .field textarea:focus, .cm-form input:focus, .bulk-name:focus {
+  outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent;
+}
+.search-row input { border-radius: var(--radius-search); padding-left: 20px; }
+.search-row button, .cm-form button { border-radius: var(--radius-search); padding: 0 20px; background: var(--accent); color: #fff; font-weight: 700; }
+
+/* ---------- 버튼 ---------- */
+.primary, .pick-btn {
+  min-height: 56px; border-radius: var(--radius); background: var(--action); color: #fff; border: 0;
+  font-weight: 700; font-size: 15px; letter-spacing: 0.3px;
+}
+.primary:active, .pick-btn:active { background: var(--action-press); }
+.btn { border-radius: var(--radius); border: 1px solid var(--line); background: var(--card); color: var(--heading); padding: 12px 16px; }
+.btn.danger { color: var(--danger); }
+.link { color: var(--accent); }
+.chip-btn { background: var(--purple-200); color: var(--accent); border-radius: var(--radius-chip); padding: 8px 14px; }
+
+/* ---------- 로그인 ---------- */
+.brand { font-size: 34px; font-weight: 800; }
+.seg { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-search); }
+.seg button { border-radius: var(--radius-search); color: var(--muted); }
+.seg button.on { background: var(--purple-200); color: var(--accent); box-shadow: none; }
+.invite-banner { background: var(--accent-soft); border-radius: var(--radius); }
+
+/* ---------- 상단·하단 ---------- */
+.topbar { background: var(--bg); border-bottom: 0; box-shadow: 0 4px 18px rgba(0,0,0,.04); padding-left: var(--space-x); padding-right: var(--space-x); }
+.topbar select {
+  border-radius: var(--radius-search); border: 1px solid var(--input-line); background: var(--card);
+  color: var(--heading); font-size: 17px; padding: 12px 18px;
+}
+.avatar { width: 44px; height: 44px; background: var(--accent); color: #fff; }
+.tabbar {
+  background: rgba(246,245,245,.85); -webkit-backdrop-filter: blur(27px); backdrop-filter: blur(27px);
+  border-top: 1px solid rgba(0,0,0,.08);
+}
+.tabbar button { height: var(--tabbar-h); font-size: 11px; color: var(--muted); }
+.tabbar button span { display: block; width: 30px; height: 30px; filter: grayscale(1); opacity: .45; transition: .15s; }
+.tabbar button span img { width: 100%; height: 100%; }
+.tabbar button.on { color: var(--accent); }
+.tabbar button.on span { filter: none; opacity: 1; transform: translateY(-1px); }
+.fab {
+  width: 64px; height: 64px; border-radius: 22px; padding: 8px; right: var(--space-x);
+  border: 1px solid rgba(255,255,255,.9); background: rgba(255,255,255,.75);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  box-shadow: 0 10px 28px rgba(11,206,131,.35); color: var(--action);
+}
+.fab img { width: 100%; height: 100%; }
+.fab:active { transform: scale(.95); }
+.pad { padding-left: var(--space-x); padding-right: var(--space-x); }
+
+/* ---------- 지도 ---------- */
+.pin { box-shadow: 0 4px 14px rgba(45,12,87,.3); }
+.pin-num { background: var(--accent); }
+.map-empty { border-radius: var(--radius); border: 1px solid var(--line); box-shadow: 0 4px 18px rgba(45,12,87,.08); }
+
+/* ---------- 카드·타임라인·기록장 ---------- */
+.tl-date { font-size: 22px; color: var(--heading); font-weight: 700; }
+.card { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; gap: 14px; }
+.card .thumb { width: 84px; height: 84px; border-radius: var(--radius); background: var(--media); }
+.trip-card .thumb { width: 72px; height: 72px; }
+.card b { color: var(--heading); font-size: 17px; }
+.card .comment { color: rgba(0,0,0,.6); }
+.stats div { border: 1px solid var(--line); border-radius: var(--radius); }
+.stats b { font-family: var(--font-display); font-size: 26px; color: var(--accent); }
+
+/* ---------- 바텀 시트 ---------- */
+.sheet-backdrop { background: rgba(45,12,87,.35); }
+.sheet-body { border-radius: var(--radius-sheet) var(--radius-sheet) 0 0; padding-left: var(--space-x); padding-right: var(--space-x); }
+.grabber { background: var(--gray-200); }
+.sheet-close { background: var(--card); color: var(--heading); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+
+/* ---------- 기록 남기기 ---------- */
+.photo-strip img, .add-photo, .ph.loading { border-radius: var(--radius); }
+.add-photo { border: 2px dashed var(--purple-200); color: var(--accent); }
+.ph.loading { background: var(--media); }
+.results button { border-radius: var(--radius); border: 1px solid var(--line); }
+.mini-map { border-radius: var(--radius); border: 1px solid var(--line); }
+.cats label span { border: 0; border-radius: var(--radius-chip); background: var(--card); color: rgba(0,0,0,.5); padding: 7px 14px; }
+.cats label input:checked + span { background: var(--purple-200); color: var(--accent); font-weight: 700; border: 0; }
+.choice { border: 1px solid var(--line); border-radius: var(--radius); }
+.cand { border-radius: var(--radius-chip); }
+.cand.on { background: var(--purple-200); color: var(--accent); border-color: var(--purple-200); }
+.bulk-card { border: 1px solid var(--line); border-radius: var(--radius); }
+.bulk-ph img { border-radius: var(--radius); }
+
+/* ---------- 장소 보기 ---------- */
+.g-item img { border-radius: var(--radius); background: var(--media); }
+.pd-cat { background: var(--purple-200); color: var(--accent); border-radius: var(--radius-chip); }
+.pd-name { font-size: 28px; color: var(--heading); }
+.pd-comment { border-radius: var(--radius); border: 1px solid var(--line); border-left: 4px solid var(--accent); }
+.pd-memo { border-radius: var(--radius); }
+.cm .avatar { background: var(--accent); }
+.member { border-bottom-color: rgba(0,0,0,.1); }
+.divider { background: rgba(0,0,0,.1); }
+
+/* ---------- 테마 고르기 ---------- */
+.theme-opt { border-radius: var(--radius); border: 1px solid var(--line); }
+.theme-opt.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.theme-opt.on .theme-check { color: var(--accent); }
+
+.toast { background: rgba(45,12,87,.92); border-radius: var(--radius-search); }

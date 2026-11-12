@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="book-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFD25F"/><stop offset="1" stop-color="#F24E1E"/>
+    </linearGradient>
+    <linearGradient id="book-glass" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="book-edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".2"/>
+    </linearGradient>
+    <filter id="book-blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <filter id="book-shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="book-clip"><rect x="8" y="14" width="34" height="44" rx="6"/></clipPath>
+    <g id="book-back"><rect x="26" y="6" width="32" height="44" rx="6"/></g>
+  </defs>
+  <g opacity=".45" transform="translate(0 5)" filter="url(#book-shadow)" fill="#F7891B"><rect x="8" y="14" width="34" height="44" rx="6"/></g>
+  <use xlink:href="#book-back" fill="url(#book-g)"/>
+  <g fill="url(#book-g)" opacity=".38"><rect x="8" y="14" width="34" height="44" rx="6"/></g>
+  <g clip-path="url(#book-clip)">
+    <use xlink:href="#book-back" fill="url(#book-g)" filter="url(#book-blur)"/>
+  </g>
+  <g fill="url(#book-glass)" stroke="url(#book-edge)" stroke-width=".9"><rect x="8" y="14" width="34" height="44" rx="6"/></g>
+  <path d="M16 28h18M16 36h18M16 44h11" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+</svg>

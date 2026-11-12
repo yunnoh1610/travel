@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="sight-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF6B8B"/><stop offset="1" stop-color="#E5126B"/>
+    </linearGradient>
+    <linearGradient id="sight-glass" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="sight-edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".2"/>
+    </linearGradient>
+    <filter id="sight-blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <filter id="sight-shadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="sight-clip"><circle cx="26" cy="30" r="15"/></clipPath>
+    <g id="sight-back"><path d="M32 4C20.4 4 11 13 11 24.2 11 40 32 60 32 60s21-20 21-35.8C53 13 43.6 4 32 4z"/></g>
+  </defs>
+  <g opacity=".45" transform="translate(0 5)" filter="url(#sight-shadow)" fill="#F2297A"><circle cx="26" cy="30" r="15"/></g>
+  <use xlink:href="#sight-back" fill="url(#sight-g)"/>
+  <g fill="url(#sight-g)" opacity=".38"><circle cx="26" cy="30" r="15"/></g>
+  <g clip-path="url(#sight-clip)">
+    <use xlink:href="#sight-back" fill="url(#sight-g)" filter="url(#sight-blur)"/>
+  </g>
+  <g fill="url(#sight-glass)" stroke="url(#sight-edge)" stroke-width=".9"><circle cx="26" cy="30" r="15"/></g>
+  <circle cx="26" cy="30" r="5" fill="#fff" stroke="none"/>
+</svg>
