@@ -427,7 +427,10 @@ function bindDiary(form, ctx) {
     if (error) {
       let payload = null;
       try { payload = await error.context?.json(); } catch { /* 본문 없음 */ }
-      const msg = payload?.error?.message || (error.name === 'FunctionsFetchError' ? 'AI 서버에 연결하지 못했어요' : 'AI 요청에 실패했어요. 잠시 후 다시 시도해 주세요');
+      // AI 서버가 일기 기능 전 버전이면 "알 수 없는 요청" → 다시 배포가 필요하다고 알려 줌
+      const old = payload?.error?.code === 'VALIDATION_ERROR' && /알 수 없는 요청/.test(payload?.error?.message || '');
+      const msg = old ? 'AI 서버가 예전 버전이라 일기 정리를 아직 못 해요. 관리자가 AI 서버(ai-planner)를 다시 배포해야 해요'
+        : payload?.error?.message || (error.name === 'FunctionsFetchError' ? 'AI 서버에 연결하지 못했어요' : 'AI 요청에 실패했어요. 잠시 후 다시 시도해 주세요');
       out.innerHTML = `<div class="notice error">${esc(msg)}</div>`;
       return;
     }
@@ -1115,14 +1118,11 @@ async function refresh(fit = false) {
   window.dispatchEvent(new CustomEvent('travel:refresh'));
 }
 
-/** "기록 3 · 일정 12" — 일정이 없으면 "기록 3" */
-const countLabel = (places, plans) => (plans ? `기록 ${places} · 일정 ${plans}` : `기록 ${places}`);
 function renderFilter() {
   const sel = $('#tripFilter');
-  const total = state.trips.reduce((n, t) => n + t.place_count, 0);
-  const totalPlans = state.trips.reduce((n, t) => n + (t.plan_count || 0), 0);
-  sel.innerHTML = `<option value="all">🌏 모든 여행 (${countLabel(total, totalPlans)})</option>`
-    + state.trips.map((t) => `<option value="${t.id}">${kindEmoji(t.kind)} ${esc(t.title)} (${countLabel(t.place_count, t.plan_count)})</option>`).join('');
+  // 이름만 (기록·일정 수는 🧳 여행 목록에서)
+  sel.innerHTML = '<option value="all">🌏 모든 여행</option>'
+    + state.trips.map((t) => `<option value="${t.id}">${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('');
   sel.value = String(state.filter);
 }
 $('#tripFilter').onchange = (e) => {
