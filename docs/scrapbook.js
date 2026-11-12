@@ -18,7 +18,7 @@
   const STICKERS = ['✈️', '🚆', '🚌', '🗺️', '📍', '🧳', '🏯', '⛩️', '🌸', '🍁', '🌿', '🌊', '☀️', '🌙', '⭐', '💜',
     '💛', '📷', '🎫', '🍜', '☕', '🍰', '🍺', '🎉', '😆', '🥰', '👍', '✉️', '🎈', '❤️'];
   const TAPES = ['#f7c8d0', '#c9e4f6', '#fff1a1', '#cdeccf', '#e2cbff'];
-  const COLORS = ['#2d2a26', '#7203FF', '#c2410c', '#1f5378', '#0f766e', '#ffffff'];
+  const COLORS = ['#2d2a26', '#6E5FAE', '#c2410c', '#1f5378', '#0f766e', '#ffffff'];
   const MAX_HISTORY = 40;
 
   const S = { tripId: null, loadedFor: null, loading: false, error: null, pages: [], els: new Map() };

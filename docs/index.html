@@ -31,7 +31,7 @@
       var links = document.querySelectorAll('link[id^="themeCss-"]');
       for (var i = 0; i < links.length; i++) links[i].disabled = links[i].id !== 'themeCss-' + t;
       var m = document.querySelector('meta[name=theme-color]');
-      var colors = { glass: '#7203FF', sketch: '#2aa7d9', passport: '#2f6f9f', basic: '#0f766e' };
+      var colors = { glass: '#6E5FAE', sketch: '#2aa7d9', passport: '#2f6f9f', basic: '#0f766e' };
       if (m) m.setAttribute('content', colors[t] || colors.glass);
     })();
   </script>

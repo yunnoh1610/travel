@@ -51,6 +51,8 @@ before(async () => {
   }
   // 004 를 한 번 더 실행해도 안전한지
   await db.exec(sql('migrate-004-planner-scrapbook.sql'));
+  await db.exec(sql('migrate-005-record-time-plan-link.sql'));
+  await db.exec(sql('migrate-005-record-time-plan-link.sql'));
 
   for (const [id, name] of [[A, 'aa'], [B, 'bb'], [C, 'cc']]) {
     await db.query("insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, jsonb_build_object('name', $3::text))",
@@ -227,6 +229,30 @@ test('스크랩북: 저장·버전 충돌·다른 여행 사진 차단·고아 �
   assert.deepEqual(s2[0].orphan_paths, [`${trip}/sb_x.jpg`]);
 });
 
+test('005: 장소 기록 시각·일정 연결 (같은 기록장만, 계획 시간은 그대로)', async () => {
+  const item = (await rows(A, "insert into itinerary_items (trip_id, day_date, title, start_time, end_time) values ($1, '2026-11-23', '부여 궁남지', '10:00', '11:00') returning id, start_time", [trip]))[0];
+  const p = (await rows(B, `insert into places (trip_id, name, lat, lng, visited_at, visited_time, plan_item_id)
+    values ($1, '궁남지', 36.27, 126.91, '2026-11-23', '10:47', $2) returning id, visited_time, plan_item_id`, [trip, item.id]))[0];
+  assert.equal(p.visited_time, '10:47:00');
+  assert.equal(p.plan_item_id, item.id);
+  // 계획 시간은 바뀌지 않음
+  assert.equal((await rows(A, 'select start_time from itinerary_items where id = $1', [item.id]))[0].start_time, '10:00:00');
+  // 다른 기록장의 일정에는 연결 불가
+  const otherItem = (await rows(C, "insert into itinerary_items (trip_id, day_date, title) values ($1, '2026-11-21', 'C 일정') returning id", [otherTrip]))[0].id;
+  await fails(B, 'update places set plan_item_id = $1 where id = $2', [otherItem, p.id], /다른 기록장의 일정/);
+  // 쓴 사람은 시간을 고칠 수 있고, 남은 못 고침
+  assert.equal((await rows(B, "update places set visited_time = '11:05' where id = $1 returning id", [p.id])).length, 1);
+  assert.equal((await rows(C, "update places set visited_time = '01:00' where id = $1 returning id", [p.id])).length, 0);
+  // 사진 촬영 일시
+  const ph = (await rows(B, 'insert into photos (place_id, path, thumb_path, taken_at) values ($1, $2, $3, $4) returning taken_at', [p.id, `${trip}/t.jpg`, `${trip}/t_t.jpg`, '2026-11-23T01:47:00Z']))[0];
+  assert.ok(ph.taken_at);
+  // 일정을 지우면 기록은 남고 연결만 풀림
+  await rows(A, 'delete from itinerary_items where id = $1', [item.id]);
+  const after = (await rows(B, 'select plan_item_id, name from places where id = $1', [p.id]))[0];
+  assert.equal(after.plan_item_id, null);
+  assert.equal(after.name, '궁남지');
+});
+
 test('멤버가 나가면 새 자료도 못 봄 (TC-15)', async () => {
   assert.ok((await rows(B, 'select id from itinerary_items where trip_id = $1', [trip])).length > 0);
   await rows(B, 'delete from trip_members where trip_id = $1 and user_id = $2', [trip, B]);
@@ -246,10 +272,13 @@ test('여행을 지우면 새 자료도 함께 지워지고 오류가 없음 (TC
 test('되돌리기 SQL 이 기존 테이블을 남기고 새 테이블만 지움', async () => {
   const x = new PGlite();
   await x.exec(SUPABASE_STUB);
-  for (const f of ['schema.sql', 'migrate-002-username.sql', 'migrate-003-memories.sql', 'migrate-004-planner-scrapbook.sql', 'rollback-004-planner-scrapbook.sql']) {
+  for (const f of ['schema.sql', 'migrate-002-username.sql', 'migrate-003-memories.sql', 'migrate-004-planner-scrapbook.sql',
+    'migrate-005-record-time-plan-link.sql', 'rollback-005-record-time-plan-link.sql', 'rollback-004-planner-scrapbook.sql']) {
     await x.exec(sql(f));
   }
   const t = (await x.query("select table_name from information_schema.tables where table_schema = 'public' order by 1")).rows.map((r) => r.table_name);
   assert.deepEqual(t, ['photos', 'place_comments', 'places', 'profiles', 'trip_invites', 'trip_list', 'trip_members', 'trips']);
+  const cols = (await x.query("select column_name from information_schema.columns where table_name = 'places' and column_name in ('visited_time', 'plan_item_id')")).rows;
+  assert.equal(cols.length, 0, '005 되돌리기 후 새 칸 없음');
   await x.close();
 });

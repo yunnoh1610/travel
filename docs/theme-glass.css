@@ -5,12 +5,13 @@
    - app.css 뒤에 불러와서 색·모양만 덮어써요 (기능·배치는 그대로)
    ===================================================================== */
 :root {
-  --purple-500: #7203FF;
-  --purple-200: #D6B6FF;
-  --purple-100: #E2CBFF;
-  --ink-900: #2D0C57;
-  --ink-500: #9586A8;
-  --lilac-border: #D9D0E3;
+  --purple-500: #6E5FAE; /* 채도를 낮춘 라벤더 보라 (흰 글자 대비 5.3:1) */
+  --purple-400: #9E90D6;
+  --purple-200: #DDD6F2;
+  --purple-100: #EEEAF8;
+  --ink-900: #2F2A4A;
+  --ink-500: #857E9C;
+  --lilac-border: #E2DDED;
   --green-500: #0BCE83;
   --green-600: #06BE77;
   --gray-50: #F6F5F5;
@@ -19,21 +20,24 @@
 
   --accent: var(--purple-500);
   --accent-soft: var(--purple-100);
+  --accent-2: var(--purple-400);
   --action: var(--green-500);
   --action-press: var(--green-600);
   --bg: var(--gray-50);
   --card: #ffffff;
-  --media: #F3EEFA;
+  --media: #F2EFF8;
   --text: #000000;
   --heading: var(--ink-900);
   --muted: var(--ink-500);
   --line: var(--lilac-border);
   --input-line: var(--gray-200);
   --danger: #F24E1E;
-  --radius: 8px;
-  --radius-chip: 17px;
-  --radius-search: 27px;
-  --radius-sheet: 30px;
+  /* 모서리 둥글기 통일: 버튼·입력칸·카드·팝업 14px / 작은 요소 10px / 칩·탭 알약 모양 / 아래 창 24px */
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-chip: 999px;
+  --radius-search: var(--radius);
+  --radius-sheet: 24px;
   --space-x: 20px;
   --tabbar-h: 64px;
   /* SF Pro는 애플 기기에서만 시스템 글꼴로 쓰이고, 그 밖에서는 한글 글꼴로 대체 */
@@ -82,8 +86,8 @@ img.ic { width: 1.25em; height: 1.25em; vertical-align: -0.3em; display: inline-
 
 /* ---------- 로그인 ---------- */
 .brand { font-size: 34px; font-weight: 800; }
-.seg { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-search); }
-.seg button { border-radius: var(--radius-search); color: var(--muted); }
+.seg { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-chip); }
+.seg button { border-radius: var(--radius-chip); color: var(--muted); }
 .seg button.on { background: var(--purple-200); color: var(--accent); box-shadow: none; }
 .invite-banner { background: var(--accent-soft); border-radius: var(--radius); }
 
@@ -104,7 +108,7 @@ img.ic { width: 1.25em; height: 1.25em; vertical-align: -0.3em; display: inline-
 .tabbar button.on { color: var(--accent); }
 .tabbar button.on span { filter: none; opacity: 1; transform: translateY(-1px); }
 .fab {
-  width: 64px; height: 64px; border-radius: 22px; padding: 8px; right: var(--space-x);
+  width: 64px; height: 64px; border-radius: 20px; padding: 8px; right: var(--space-x);
   border: 1px solid rgba(255,255,255,.9); background: rgba(255,255,255,.75);
   -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
   box-shadow: 0 10px 28px rgba(11,206,131,.35); color: var(--action);
@@ -114,9 +118,9 @@ img.ic { width: 1.25em; height: 1.25em; vertical-align: -0.3em; display: inline-
 .pad { padding-left: var(--space-x); padding-right: var(--space-x); }
 
 /* ---------- 지도 ---------- */
-.pin { box-shadow: 0 4px 14px rgba(45,12,87,.3); }
+.pin { box-shadow: 0 4px 14px rgba(47,42,74,.3); }
 .pin-num { background: var(--accent); }
-.map-empty { border-radius: var(--radius); border: 1px solid var(--line); box-shadow: 0 4px 18px rgba(45,12,87,.08); }
+.map-empty { border-radius: var(--radius); border: 1px solid var(--line); box-shadow: 0 4px 18px rgba(47,42,74,.08); }
 
 /* ---------- 카드·타임라인·기록장 ---------- */
 .tl-date { font-size: 22px; color: var(--heading); font-weight: 700; }
@@ -129,7 +133,7 @@ img.ic { width: 1.25em; height: 1.25em; vertical-align: -0.3em; display: inline-
 .stats b { font-family: var(--font-display); font-size: 26px; color: var(--accent); }
 
 /* ---------- 바텀 시트 ---------- */
-.sheet-backdrop { background: rgba(45,12,87,.35); }
+.sheet-backdrop { background: rgba(47,42,74,.35); }
 .sheet-body { border-radius: var(--radius-sheet) var(--radius-sheet) 0 0; padding-left: var(--space-x); padding-right: var(--space-x); }
 .grabber { background: var(--gray-200); }
 .sheet-close { background: var(--card); color: var(--heading); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
@@ -163,4 +167,4 @@ img.ic { width: 1.25em; height: 1.25em; vertical-align: -0.3em; display: inline-
 .theme-opt.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .theme-opt.on .theme-check { color: var(--accent); }
 
-.toast { background: rgba(45,12,87,.92); border-radius: var(--radius-search); }
+.toast { background: rgba(47,42,74,.92); border-radius: var(--radius-chip); }

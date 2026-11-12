@@ -7,11 +7,12 @@
   const now = () => new Date().toISOString();
   const db = {
     profiles: [{ id: 'u-a', name: '민지', username: 'minji' }, { id: 'u-b', name: '서준', username: 'seojun' }],
-    trips: [{ id: 1, title: '공주 1박2일', kind: 'trip', start_date: '2026-11-21', end_date: '2026-11-22', owner_id: 'u-a', created_at: now() }],
-    trip_members: [{ trip_id: 1, user_id: 'u-a' }, { trip_id: 1, user_id: 'u-b' }],
+    trips: [{ id: 1, title: '공주 1박2일', kind: 'trip', start_date: '2026-11-21', end_date: '2026-11-22', owner_id: 'u-a', created_at: now() },
+      { id: 2, title: '작년 경주 여행', kind: 'trip', start_date: '2025-10-03', end_date: '2025-10-05', owner_id: 'u-a', created_at: now() }],
+    trip_members: [{ trip_id: 1, user_id: 'u-a' }, { trip_id: 1, user_id: 'u-b' }, { trip_id: 2, user_id: 'u-a' }],
     places: [
-      { id: 1, trip_id: 1, user_id: 'u-a', name: '공산성', lat: 36.4646, lng: 127.1265, visited_at: '2026-11-21', comment: '성곽길 산책', memo: null, category: 'sight', created_at: now() },
-      { id: 2, trip_id: 1, user_id: 'u-b', name: '공주 산성시장', lat: 36.4560, lng: 127.1250, visited_at: '2026-11-21', comment: '국밥 최고', memo: null, category: 'food', created_at: now() },
+      { id: 1, trip_id: 1, user_id: 'u-a', name: '공산성', lat: 36.4646, lng: 127.1265, visited_at: '2026-11-21', visited_time: '11:42:00', plan_item_id: 2, comment: '성곽길 산책', memo: null, category: 'sight', created_at: now() },
+      { id: 2, trip_id: 1, user_id: 'u-b', name: '공주 산성시장', lat: 36.4560, lng: 127.1250, visited_at: '2026-11-21', visited_time: '13:05:00', plan_item_id: null, comment: '국밥 최고', memo: null, category: 'food', created_at: now() },
       { id: 3, trip_id: 1, user_id: 'u-a', name: '무령왕릉과 왕릉원', lat: 36.4610, lng: 127.1120, visited_at: '2026-11-22', comment: null, memo: null, category: 'sight', created_at: now() },
     ],
     photos: [
@@ -24,6 +25,10 @@
     trip_plans: [],
     itinerary_items: [
       { id: 1, trip_id: 1, day_date: '2026-11-21', sort_order: 1, item_type: 'MOVE', title: '서울 → 공주 버스', start_time: '09:00:00', end_time: '10:30:00', place_id: null, place_name: null, address: null, lat: null, lng: null, verification_status: 'UNVERIFIED', cost_estimate: 11000, currency: 'KRW', notes: null, source: 'MANUAL', user_edited: false, created_by: 'u-a' },
+      { id: 2, trip_id: 1, day_date: '2026-11-21', sort_order: 2, item_type: 'PLACE', title: '공산성 산책', start_time: '11:00:00', end_time: '12:30:00', place_id: null, place_name: '공산성', address: null, lat: 36.4646, lng: 127.1265, verification_status: 'VERIFIED', cost_estimate: 1200, currency: 'KRW', notes: null, source: 'AI', user_edited: false, created_by: 'u-a' },
+      { id: 3, trip_id: 1, day_date: '2026-11-22', sort_order: 1, item_type: 'PLACE', title: '마곡사', start_time: '10:00:00', end_time: '12:00:00', place_id: null, place_name: '마곡사', address: null, lat: 36.55, lng: 127.0, verification_status: 'UNVERIFIED', cost_estimate: null, currency: 'KRW', notes: null, source: 'AI', user_edited: false, created_by: 'u-a' },
+      { id: 4, trip_id: 2, day_date: '2025-10-03', sort_order: 1, item_type: 'PLACE', title: '불국사', start_time: '10:00:00', end_time: '12:00:00', place_id: null, place_name: '불국사', address: null, lat: 35.79, lng: 129.33, verification_status: 'VERIFIED', cost_estimate: 6000, currency: 'KRW', notes: null, source: 'AI', user_edited: false, created_by: 'u-a' },
+      { id: 5, trip_id: 2, day_date: '2025-10-05', sort_order: 1, item_type: 'MEAL', title: '황리단길 점심', start_time: '12:00:00', end_time: null, place_id: null, place_name: '황리단길', address: null, lat: 35.83, lng: 129.21, verification_status: 'UNVERIFIED', cost_estimate: 15000, currency: 'KRW', notes: null, source: 'MANUAL', user_edited: false, created_by: 'u-a' },
     ],
     ai_drafts: [],
     trip_expenses: [],
@@ -77,7 +82,7 @@
 
   class QB {
     constructor(t) { this.t = t; this.op = 'select'; this.fs = []; this.ords = []; this.lim = null; this.ret = false; this.one = null; this.head = false; }
-    select(_c, o) { if (this.op === 'select') { this.head = !!o?.head; } else this.ret = true; return this; }
+    select(c, o) { this.cols = c || ''; if (this.op === 'select') { this.head = !!o?.head; } else this.ret = true; return this; }
     eq(c, v) { this.fs.push((r) => (c.includes('.') ? r[c.split('.')[0]]?.[c.split('.')[1]] : r[c]) == v); return this; }
     neq(c, v) { this.fs.push((r) => r[c] != v); return this; }
     in(c, a) { this.fs.push((r) => a.includes(r[c])); return this; }
@@ -95,6 +100,11 @@
       const src = this.t === 'trip_list' ? 'trips' : this.t;
       const table = db[src];
       if (!table) return err(`Could not find the table 'public.${this.t}'`, 'PGRST205');
+      // MOCK.no005 = true → migrate-005 전 DB 흉내 (새 칸이 없음)
+      const new005 = /visited_time|plan_item_id|taken_at/;
+      if (window.MOCK.no005 && (new005.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new005.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new005.test(k))))) {
+        return err('column places.visited_time does not exist', '42703');
+      }
       const match = (r) => this.fs.every((f) => f(shape(this.t, r)));
       let out;
       if (this.op === 'insert') {
@@ -108,6 +118,7 @@
           }
           if (src === 'trip_expenses' && r.amount < 0) return err('violates check constraint', '23514');
           if (src === 'checklist_items') r.checked ??= false;
+          if (src === 'places' || src === 'photos') r.user_id ??= ME.id;
           if (src === 'scrapbook_pages') Object.assign(r, { revision: 0, template: 'BLANK', background: 'paper', ...r });
           if (src === 'trips') { db.trip_members.push({ trip_id: r.id, user_id: ME.id }); r.owner_id = ME.id; }
           table.push(r);
@@ -228,7 +239,21 @@
     db.ai_drafts.push({ id, trip_id: t.id, kind: 'GENERATE', status: 'DRAFT', base_revision: plan(t.id).revision, result_json: { days } });
     return { draftId: id, status: 'DRAFT', baseRevision: plan(t.id).revision, days, warnings: ['장소 1곳은 실제 장소를 찾지 못했어요', '운영시간·요금·이동 소요시간은 AI 추정이에요. 방문 전에 꼭 확인해 주세요'], model: 'mock' };
   }
+  function aiAdd(body) {
+    if (body.baseRevision !== plan(body.tripId).revision) return { error: { code: 'REVISION_CONFLICT', message: '그 사이 일정이 바뀌었어요. 새로고침 후 다시 요청해 주세요' }, status: 409 };
+    const mk = (opId, title, s, e, ver, ll, reason) => ({ opId, op: 'add', itemId: null, reason, before: null,
+      item: { date: body.targetDay, type: 'CAFE', title, startTime: s, endTime: e, placeQuery: title, placeName: title, address: null,
+        lat: ver ? ll[0] : null, lng: ver ? ll[1] : null, verificationStatus: ver ? 'VERIFIED' : 'UNVERIFIED', estimatedCost: 6500, currency: 'KRW', notes: null, matchedPlaceId: null } });
+    // 서버가 예전 버전이면 수정·삭제 제안도 올 수 있어서 하나 섞어 둠 (앱이 걸러야 함)
+    const ops = [mk('op-1', '금강 뷰 카페', '16:00', '17:00', true, [36.466, 127.127], '공산성 바로 옆'),
+      mk('op-2', '루프탑 카페', '12:00', '13:00', false, null, '점심 뒤'),
+      { opId: 'op-3', op: 'delete', itemId: 1, reason: 'x', before: null, item: null }];
+    const id = `draft-${Date.now()}`;
+    db.ai_drafts.push({ id, trip_id: body.tripId, kind: 'REVISE', status: 'DRAFT', base_revision: plan(body.tripId).revision, result_json: { operations: ops } });
+    return { draftId: id, status: 'DRAFT', baseRevision: plan(body.tripId).revision, operations: ops, warnings: [] };
+  }
   function aiRevise(body) {
+    if (body.mode === 'ADD') return aiAdd(body);
     if (body.baseRevision !== plan(body.tripId).revision) return { error: { code: 'REVISION_CONFLICT', message: '그 사이 일정이 바뀌었어요. 새로고침 후 다시 요청해 주세요' }, status: 409 };
     const items = db.itinerary_items.filter((x) => x.trip_id === body.tripId && (!body.targetDay || x.day_date === body.targetDay));
     const toItem = (r) => ({ date: r.day_date, type: r.item_type, title: r.title, startTime: r.start_time?.slice(0, 5) || null, endTime: r.end_time?.slice(0, 5) || null,
@@ -281,7 +306,7 @@
       async signInWithPassword() { return { data: { session: { user: ME } }, error: null }; },
     },
   };
-  window.MOCK = { db, failAI: false, removed: [], bumpRevision(tid = 1) { bump(tid); } };
+  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
   window.supabase = { createClient: () => client };
   window.TRAVEL_CONFIG = { url: 'https://mock.local', key: 'mock' };
 })();

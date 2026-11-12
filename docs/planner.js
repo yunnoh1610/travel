@@ -69,6 +69,19 @@
   };
 
   // ---------- 불러오기 ----------
+  async function loadTrip(id) {
+    P.tripId = id;
+    const [plan, items, expenses, checklist] = await Promise.all([
+        pq(sb.from('trip_plans').select('revision, prefs').eq('trip_id', id).maybeSingle()),
+        pq(sb.from('itinerary_items').select('*').eq('trip_id', id).order('day_date').order('sort_order').order('id')),
+        pq(sb.from('trip_expenses').select('*').eq('trip_id', id).order('id')),
+        pq(sb.from('checklist_items').select('*').eq('trip_id', id).order('sort_order').order('id')),
+    ]);
+    if (P.tripId !== id) return; // 그 사이 다른 기록장을 고름
+    Object.assign(P, { revision: plan?.revision ?? 0, prefs: plan?.prefs || {}, items, expenses, checklist, loadedFor: id, error: null });
+    const days = tripDays(trip());
+    if (!days.includes(P.day)) P.day = days.includes(today()) ? today() : days[0] || null;
+  }
   async function load(force = false) {
     const id = state.filter === 'all' ? null : state.filter;
     P.tripId = id;
@@ -77,18 +90,7 @@
     P.loading = true;
     P.error = null;
     render();
-    try {
-      const [plan, items, expenses, checklist] = await Promise.all([
-        pq(sb.from('trip_plans').select('revision, prefs').eq('trip_id', id).maybeSingle()),
-        pq(sb.from('itinerary_items').select('*').eq('trip_id', id).order('day_date').order('sort_order').order('id')),
-        pq(sb.from('trip_expenses').select('*').eq('trip_id', id).order('id')),
-        pq(sb.from('checklist_items').select('*').eq('trip_id', id).order('sort_order').order('id')),
-      ]);
-      if (P.tripId !== id) return; // 그 사이 다른 기록장을 고름
-      Object.assign(P, { revision: plan?.revision ?? 0, prefs: plan?.prefs || {}, items, expenses, checklist, loadedFor: id });
-      const days = tripDays(trip());
-      if (!days.includes(P.day)) P.day = days.includes(today()) ? today() : days[0] || null;
-    } catch (err) {
+    try { await loadTrip(id); } catch (err) {
       P.error = err;
       P.loadedFor = null;
     } finally {
@@ -96,7 +98,14 @@
     }
     render();
   }
-  const reload = () => load(true);
+  // 일정을 바꾼 뒤: 이 화면과 기록장 타임라인을 함께 새로 (같은 일정 데이터)
+  async function reload() {
+    if (P.tripId) {
+      try { await loadTrip(P.tripId); } catch (err) { P.error = err; P.loadedFor = null; }
+    }
+    render();
+    window.refreshPlans?.();
+  }
 
   // ---------- 그리기 ----------
   function render() {
@@ -168,14 +177,26 @@
     }
     const list = dayItems(P.day);
     const unknownCost = list.filter((i) => PLACE_TYPES.includes(i.item_type) && i.cost_estimate == null).length;
-    return `
+    const actions = P.items.length ? `
       <div class="plan-actions">
         <button class="primary ai-btn" data-act="ai-generate">✨ AI 일정 만들기</button>
         <div class="btn-row" style="margin-top:8px">
           <button class="btn" data-act="add-item">＋ 일정 추가</button>
-          <button class="btn" data-act="ai-revise" ${P.items.length ? '' : 'disabled'}>🪄 AI에게 수정 요청</button>
+          <button class="btn" data-act="ai-add">✨ AI로 일정 추가</button>
+          <button class="btn" data-act="ai-revise">🪄 AI에게 수정 요청</button>
         </div>
-      </div>
+        <button type="button" class="link" data-act="import">📥 다른 기록장 일정 불러오기</button>
+      </div>` : `
+      <div class="start-card">
+        <b>이 기록장의 일정을 만들어 볼까요?</b>
+        <small class="muted">여기서 만든 일정은 기록장 타임라인에도 바로 보여요.</small>
+        <div class="choice-list">
+          <button class="choice" data-act="ai-generate"><span class="ic">✨</span><span><b>AI로 일정 만들기</b><small>여행지·이동 수단·취향을 알려 주면 날짜별 초안을 만들어요</small></span></button>
+          <button class="choice" data-act="add-item"><span class="ic">＋</span><span><b>직접 일정 추가</b><small>시간·장소·예상 비용을 직접 적어요</small></span></button>
+          <button class="choice" data-act="import"><span class="ic">📥</span><span><b>다른 기록장 일정 불러오기</b><small>예전에 만든 여행 계획을 이 기록장 날짜에 맞춰 복사해요</small></span></button>
+        </div>
+      </div>`;
+    return `${actions}
       <div class="day-chips" role="tablist" aria-label="날짜">
         ${days.map((d, i) => `<button type="button" role="tab" aria-selected="${d === P.day}" class="day-chip ${d === P.day ? 'on' : ''}" data-day="${d}">
           <b>${i + 1}일차</b><small>${short(d)} (${wday(d)})</small>${P.items.some((x) => x.day_date === d) ? '<i class="dot"></i>' : ''}</button>`).join('')}
@@ -334,6 +355,8 @@
       else if (act === 'add-item') openItemForm(null);
       else if (act === 'ai-generate') openGenerate();
       else if (act === 'ai-revise') openRevise();
+      else if (act === 'ai-add') openAiAdd();
+      else if (act === 'import') openImport();
       else if (act === 'add-expense') openExpenseForm(null);
       else if (act === 'ck-defaults') addDefaultChecks();
     });
@@ -736,6 +759,174 @@
     };
   }
 
+  // ---------- 다른 기록장 일정 불러오기 (날짜는 이 기록장 1일차부터 차례로 맞춤, 지금 일정은 그대로) ----------
+  async function openImport() {
+    const target = trip();
+    const days = tripDays(target);
+    if (!days.length) { toast('먼저 여행 날짜를 정해 주세요'); openTripForm(target); return; }
+    const body = openSheet(`<h2>📥 다른 기록장 일정 불러오기</h2>
+      <p class="muted" style="margin-top:-6px">‘${esc(target.title)}’ (${days.length}일)에 넣어요. 지금 있는 일정은 그대로예요.</p>
+      <div id="impBody"><div class="hint">불러오는 중…</div></div>`);
+    let rows;
+    try { rows = await pq(sb.from('itinerary_items').select('trip_id, day_date').neq('trip_id', P.tripId)); } catch (err) {
+      $('#impBody', body).innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+      return;
+    }
+    const counts = {};
+    for (const r of rows) counts[r.trip_id] = (counts[r.trip_id] || 0) + 1;
+    const list = state.trips.filter((t) => counts[t.id]);
+    if (!body.isConnected) return;
+    $('#impBody', body).innerHTML = list.length ? list.map((t) => `<button class="card trip-card" data-src="${t.id}">
+        <div class="thumb">${kindIcon(t.kind)}</div>
+        <div class="body"><b>${esc(t.title)}</b><small>📅 ${fmtRange(t.start_date, t.end_date)} · 일정 ${counts[t.id]}개</small></div></button>`).join('')
+      : '<div class="empty small">불러올 수 있는 다른 기록장 일정이 없어요</div>';
+    body.onclick = async (e) => {
+      const b = e.target.closest('[data-src]');
+      if (b) return previewImport(body, state.trips.find((t) => t.id === Number(b.dataset.src)), days);
+      if (e.target.id === 'impBack') return openImport();
+    };
+  }
+
+  async function previewImport(body, src, days) {
+    const items = await pq(sb.from('itinerary_items').select('*').eq('trip_id', src.id).order('day_date').order('sort_order').order('id'));
+    const srcDays = tripDays(src).length ? tripDays(src) : [...new Set(items.map((i) => i.day_date))].sort();
+    const mapped = items.map((i) => ({ i, to: days[srcDays.indexOf(i.day_date)] })).filter((x) => x.to);
+    const skipped = items.length - mapped.length;
+    const perDay = days.map((d, k) => [k + 1, d, mapped.filter((x) => x.to === d).length]).filter((x) => x[2]);
+    $('#impBody', body).innerHTML = `<div class="notice">‘${esc(src.title)}’ 일정 <b>${mapped.length}개</b>를 넣어요${skipped ? ` · ${skipped}개는 이 기록장 기간을 넘어서 빼요` : ''}</div>
+      <ul class="imp-days">${perDay.map(([k, d, c]) => `<li>${k}일차 ${short(d)} (${wday(d)}) · ${c}개</li>`).join('')}</ul>
+      <small class="hint">시간·장소·메모를 그대로 복사해요. 불러온 뒤에는 이 기록장 일정으로 따로 고칠 수 있어요.</small>
+      <div class="sticky-actions"><button class="primary" id="impGo" ${mapped.length ? '' : 'disabled'}>일정 ${mapped.length}개 불러오기</button>
+        <div class="btn-row"><button class="btn" id="impBack">← 다른 기록장 고르기</button></div></div>`;
+    $('#impGo', body).onclick = async (e) => {
+      const btn = e.target;
+      btn.disabled = true;
+      btn.textContent = '불러오는 중…';
+      const base = {};
+      for (const d of days) base[d] = dayItems(d).reduce((m, x) => Math.max(m, x.sort_order), 0);
+      const rows = mapped.map(({ i, to }) => ({
+        trip_id: P.tripId, day_date: to, sort_order: ++base[to], item_type: i.item_type, title: i.title,
+        start_time: i.start_time, end_time: i.end_time, place_name: i.place_name, address: i.address, lat: i.lat, lng: i.lng,
+        verification_status: i.verification_status, cost_estimate: i.cost_estimate, currency: i.currency, notes: i.notes, source: i.source,
+      }));
+      try {
+        await pq(sb.from('itinerary_items').insert(rows).select('id'));
+        closeSheet();
+        await reload();
+        toast(`일정 ${rows.length}개를 불러왔어요`);
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = `일정 ${mapped.length}개 불러오기`; }
+    };
+  }
+
+  // ---------- AI로 일정 추가 (지금 일정은 그대로, 겹치지 않게·가까운 곳으로 추천 → 고른 것만 추가) ----------
+  function openAiAdd() {
+    const days = tripDays(trip());
+    if (!days.length) { toast('먼저 여행 날짜를 정해 주세요'); openTripForm(trip()); return; }
+    const day0 = days.includes(P.day) ? P.day : days[0];
+    const body = openSheet(`<h2>✨ AI로 일정 추가</h2>
+      <p class="muted" style="margin-top:-6px">지금 일정과 시간이 겹치지 않고 동선에서 가까운 곳으로 추천해요. 지금 일정과 기록은 바뀌지 않아요.</p>
+      <form id="aiAddForm" autocomplete="off">
+        <label class="field"><span>날짜</span><select name="day">${days.map((d, i) => `<option value="${d}" ${d === day0 ? 'selected' : ''}>${i + 1}일차 ${short(d)} (${wday(d)}) · 일정 ${dayItems(d).length}개</option>`).join('')}</select></label>
+        <label class="field"><span>무엇을 추가할까요? <small>300자</small></span>
+          <textarea name="instruction" maxlength="300" rows="2" required placeholder="예: 근처 카페 추가해 줘"></textarea></label>
+        <div class="cands">${['근처 카페 추가해 줘', '오후 일정 추천해 줘', '저녁 맛집 추천해 줘', '비 오면 갈 만한 곳'].map((x) => `<button type="button" class="cand" data-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+        <button class="primary" type="submit" style="margin-top:12px">추천 받기</button>
+        <small class="hint">여행지·이동 수단·취향은 ‘AI 일정 만들기’ 때 적은 조건을 써요.</small>
+      </form>
+      <div id="aiAddOut"></div>`);
+    const f = $('#aiAddForm', body);
+    f.onclick = (e) => { const ex = e.target.closest('[data-ex]'); if (ex) f.instruction.value = ex.dataset.ex; };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const instruction = f.instruction.value.trim();
+      if (!instruction) return;
+      const out = $('#aiAddOut', body);
+      const day = f.day.value;
+      f.classList.add('hidden');
+      out.innerHTML = '<div class="ai-loading"><div class="spinner"></div><b>AI가 추천할 일정을 찾고 있어요…</b><small>지금 일정은 바뀌지 않아요.</small></div>';
+      try {
+        const res = await callAI({ action: 'revise', mode: 'ADD', tripId: P.tripId, targetDay: day, instruction, baseRevision: P.revision });
+        if (body.isConnected) showAddPreview(body, res, day);
+      } catch (err) {
+        if (!body.isConnected) return;
+        out.innerHTML = aiErrorHtml(err);
+        if (err.code === 'REVISION_CONFLICT') reload();
+        out.onclick = (ev) => {
+          const a = ev.target.closest('[data-ai]')?.dataset.ai;
+          if (a === 'retry') { f.classList.remove('hidden'); out.innerHTML = ''; }
+          if (a === 'manual') openItemForm(null);
+        };
+      }
+    };
+  }
+
+  const mins = (t) => (t ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) : null);
+  /** 추천 일정이 지금 일정과 시간이 겹치는지, 지금 동선(좌표 있는 일정)에서 얼마나 먼지 */
+  function annotateAdd(o) {
+    const it = o.item;
+    const same = dayItems(it.date);
+    const s0 = mins(it.startTime);
+    const e0 = it.endTime ? mins(it.endTime) : s0 != null ? s0 + 60 : null;
+    if (s0 != null) {
+      o.conflict = o.conflict || same.some((x) => {
+        const s1 = mins(hhmm(x.start_time));
+        if (s1 == null) return false;
+        const e1 = x.end_time ? mins(hhmm(x.end_time)) : s1 + 60;
+        return s0 < e1 && s1 < e0;
+      });
+    }
+    if (o.distanceKm == null && it.lat != null) {
+      const pts = same.filter((x) => x.lat != null);
+      if (pts.length) o.distanceKm = Math.round(Math.min(...pts.map((x) => distM({ lat: it.lat, lng: it.lng }, x))) / 100) / 10;
+    }
+    return o;
+  }
+
+  function showAddPreview(body, res, day) {
+    const out = $('#aiAddOut', body);
+    // 추가만 받음 (지금 일정을 고치거나 지우는 제안은 보여 주지 않음)
+    const ops = (res.operations || []).filter((o) => o.op === 'add' && o.item).map(annotateAdd);
+    const chosen = new Set(ops.filter((o) => !o.conflict).map((o) => o.opId));
+    out.innerHTML = `<h3>추천 일정 <small class="muted">(아직 추가 안 됨)</small></h3>
+      ${res.warnings?.length ? `<div class="notice warn"><ul>${res.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
+      ${ops.length ? ops.map((o) => {
+        const it = o.item;
+        return `<label class="draft-item">
+          <input type="checkbox" data-op="${esc(o.opId)}" ${chosen.has(o.opId) ? 'checked' : ''}>
+          <span class="pi-time">${it.startTime ? `${esc(it.startTime)}${it.endTime ? `<br><small>~${esc(it.endTime)}</small>` : ''}` : '<small>시간<br>미정</small>'}</span>
+          <span class="pi-body"><span class="pi-title">${typeIcon(it.type)} <b>${esc(it.title)}</b></span>
+            <span class="pi-meta">
+              ${it.placeName && it.placeName !== it.title ? `<span>📍 ${esc(it.placeName)}</span>` : ''}
+              ${PLACE_TYPES.includes(it.type) && it.placeQuery ? (it.verificationStatus === 'VERIFIED' ? '<span class="vbadge ok">✓ 장소 확인</span>' : '<span class="vbadge warn">⚠ 미확인 장소</span>') : ''}
+              ${o.distanceKm != null ? `<span>📏 지금 동선에서 약 ${o.distanceKm}km</span>${o.distanceKm > 10 ? '<span class="vbadge warn">동선에서 멀어요</span>' : ''}` : ''}
+              ${it.estimatedCost != null ? `<span>💰 약 ${money(it.estimatedCost, it.currency)} (AI 추정)</span>` : ''}
+              ${o.conflict ? '<span class="vbadge warn">⚠ 지금 일정과 시간이 겹쳐요</span>' : ''}
+            </span>
+            ${o.reason ? `<span class="pi-notes">💬 ${esc(o.reason)}</span>` : ''}</span>
+        </label>`;
+      }).join('') : '<div class="empty small">추천할 일정을 찾지 못했어요. 요청을 조금 바꿔 보세요.</div>'}
+      <div class="sticky-actions">
+        ${ops.length ? `<button class="primary" id="addApply" ${chosen.size ? '' : 'disabled'}>선택한 일정 ${chosen.size}개 추가</button>` : ''}
+        <div class="btn-row"><button class="btn" id="addRetry">다시 요청</button><button class="btn" id="addCancel">취소</button></div>
+      </div>`;
+    const btn = $('#addApply', out);
+    out.onchange = (e) => {
+      const c = e.target.closest('[data-op]');
+      if (!c) return;
+      if (c.checked) chosen.add(c.dataset.op); else chosen.delete(c.dataset.op);
+      btn.textContent = `선택한 일정 ${chosen.size}개 추가`;
+      btn.disabled = !chosen.size;
+    };
+    out.onclick = async (e) => {
+      if (e.target.id === 'addCancel') { await discard(res.draftId); closeSheet(); toast('추가하지 않았어요. 일정은 그대로예요'); }
+      if (e.target.id === 'addRetry') { await discard(res.draftId); out.innerHTML = ''; $('#aiAddForm', body).classList.remove('hidden'); }
+      if (e.target.id === 'addApply') {
+        P.day = day;
+        await applyDraft(res, [...chosen], btn, `일정 ${chosen.size}개를 추가했어요`);
+      }
+    };
+  }
+
   // ---------- 지출 ----------
   function openExpenseForm(x) {
     const days = tripDays(trip());
@@ -820,6 +1011,22 @@
       toast(`${rows.length}개를 넣었어요`);
     } catch (err) { toast(err.message); }
   }
+
+  // ---------- 타임라인 등 다른 화면에서 쓰는 입구 (같은 일정 데이터를 고침) ----------
+  async function ensure(tripId) {
+    if (P.tripId !== tripId || P.loadedFor !== tripId) await loadTrip(tripId);
+  }
+  const guard = (fn) => async (...a) => { try { await fn(...a); } catch (err) { toast(err.message === 'NEEDS_MIGRATION' ? 'DB 설정(migrate-004)이 먼저 필요해요' : err.message); } };
+  window.Planner = {
+    openItem: guard(async (item) => {
+      if (!item) return;
+      await ensure(item.trip_id);
+      P.day = item.day_date;
+      openItemForm(P.items.find((x) => x.id === item.id) || item);
+    }),
+    addManual: guard(async (tripId) => { await ensure(tripId); openItemForm(null); }),
+    addWithAI: guard(async (tripId) => { await ensure(tripId); openAiAdd(); }),
+  };
 
   // ---------- 연결 ----------
   bind();

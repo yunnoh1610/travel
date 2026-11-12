@@ -31,8 +31,8 @@ const kindName = (k) => (KINDS[k] || KINDS.trip)[1];
 // css 파일은 index.html 의 <link id="themeCss-키">. 'basic'은 테마 파일 없이 기본 디자인
 const THEMES = {
   glass: {
-    name: '보라 글래스', icon: '💜', desc: '보라·초록 포인트, 유리처럼 맑은 아이콘', color: '#7203FF', route: '#7203FF',
-    swatch: ['#7203FF', '#0BCE83', '#D6B6FF', '#F6F5F5'],
+    name: '보라 글래스', icon: '💜', desc: '보라·초록 포인트, 유리처럼 맑은 아이콘', color: '#6E5FAE', route: '#6E5FAE',
+    swatch: ['#6E5FAE', '#0BCE83', '#DDD6F2', '#F6F5F5'],
   },
   sketch: { hidden: true, name: '청량 스케치북', icon: '✏️', desc: '하늘색·민트, 모눈 종이와 손글씨', color: '#2aa7d9', route: '#1479a8', swatch: ['#2aa7d9', '#5fd3bf', '#fff1a1', '#fbfaf4'] },
   passport: {
@@ -205,11 +205,22 @@ const db = {
       .sort((a, b) => key(b).localeCompare(key(a)) || b.id - a.id);
   },
   async places(filter) {
-    let qb = sb.from('places')
-      .select('id, trip_id, user_id, name, lat, lng, visited_at, comment, memo, category, created_at, author:profiles(name), trip:trips(title), photos(id, user_id, path, thumb_path), place_comments(count)')
-      .order('id', { referencedTable: 'photos', ascending: true });
-    if (filter !== 'all') qb = qb.eq('trip_id', filter);
-    const rows = await q(qb);
+    // 005(기록 시각·일정 연결) 전이면 새 칸 없이 예전처럼 읽음
+    const run = (v5) => {
+      let qb = sb.from('places')
+        .select(`id, trip_id, user_id, name, lat, lng, visited_at, ${v5 ? 'visited_time, plan_item_id, ' : ''}comment, memo, category, created_at, author:profiles(name), trip:trips(title), photos(id, user_id, path, thumb_path${v5 ? ', taken_at' : ''}), place_comments(count)`)
+        .order('id', { referencedTable: 'photos', ascending: true });
+      if (filter !== 'all') qb = qb.eq('trip_id', filter);
+      return qb;
+    };
+    let res;
+    try { res = await run(state.v005); } catch (e) { throw new Error(korean(e)); }
+    if (res.error && state.v005 && /visited_time|plan_item_id|taken_at|42703/.test(`${res.error.code} ${res.error.message}`)) {
+      state.v005 = false;
+      res = await run(false);
+    }
+    if (res.error) throw new Error(korean(res.error));
+    const rows = res.data;
     await signPaths(rows.flatMap((r) => r.photos.flatMap((ph) => [ph.thumb_path, ph.path])));
     return rows.map((r) => ({
       ...r,
@@ -249,7 +260,7 @@ const db = {
   removeMember: (tripId, userId) =>qChanged(sb.from('trip_members').delete().eq('trip_id', tripId).eq('user_id', userId).select('user_id')),
   /** 장소를 만들고 사진을 올림. 사진 일부가 실패해도 장소와 성공한 사진은 남기고 { id, sent, failed } 를 돌려줌 */
   async createPlace(tripId, f, items, onProgress) {
-    const row = await q(sb.from('places').insert({ trip_id: tripId, ...f }).select('id').single());
+    const row = await q(sb.from('places').insert(v5({ trip_id: tripId, ...f })).select('id').single());
     const r = items.length ? await db.uploadPhotos(tripId, row.id, items, onProgress) : { sent: 0, failed: 0 };
     return { id: row.id, ...r };
   },
@@ -268,7 +279,10 @@ const db = {
           q(sb.storage.from(BUCKET).upload(path, it.photo, opts)),
           q(sb.storage.from(BUCKET).upload(thumb, it.thumb, opts)),
         ]);
-        if (res.every((x) => x.status === 'fulfilled')) rows[i] = { place_id: placeId, path, thumb_path: thumb };
+        if (res.every((x) => x.status === 'fulfilled')) {
+          rows[i] = { place_id: placeId, path, thumb_path: thumb };
+          if (state.v005 && it.taken != null) rows[i].taken_at = new Date(it.taken).toISOString(); // 사진 촬영 일시
+        }
         else {
           lastError = res.find((x) => x.status === 'rejected').reason;
           const left = [path, thumb].filter((_, k) => res[k].status === 'fulfilled');
@@ -287,7 +301,13 @@ const db = {
     if (!ok.length && lastError) throw lastError;
     return { sent: ok.length, failed: items.length - ok.length, error: lastError };
   },
-  updatePlace: (id, f) => qChanged(sb.from('places').update(f).eq('id', id).select('id')),
+  updatePlace: (id, f) => qChanged(sb.from('places').update(v5(f)).eq('id', id).select('id')),
+  /** 여행 계획 일정 (기록장 타임라인에 함께 보여 줌). DB 설정 004 전이면 빈 목록 */
+  async plans(filter) {
+    let qb = sb.from('itinerary_items').select('*').order('day_date').order('sort_order').order('id');
+    if (filter !== 'all') qb = qb.eq('trip_id', filter);
+    try { const res = await qb; return res.error ? [] : res.data; } catch { return []; }
+  },
   async deletePlace(p) {
     await removeFiles(p.photos.flatMap((ph) => [ph.path, ph.thumb_path]));
     await qChanged(sb.from('places').delete().eq('id', p.id).select('id'));
@@ -310,6 +330,54 @@ const db = {
     return rows[0];
   },
 };
+
+// DB 설정 005 전이면 새 칸(기록 시각·일정 연결)을 빼고 보냄
+function v5(f) {
+  if (state.v005) return f;
+  const { visited_time, plan_item_id, ...rest } = f; // eslint-disable-line no-unused-vars
+  return rest;
+}
+const hhmm = (t) => (t ? String(t).slice(0, 5) : '');
+const minutesOf = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+const timeOfMs = (ms) => { const d = new Date(ms); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const normName = (x) => String(x || '').toLowerCase().replace(/[\s·,.()\-_'"]/g, '');
+/**
+ * 기록(장소·사진)과 가장 잘 맞는 계획 일정. 같은 날짜에서 위치(300m)·이름·시간(앞뒤 1시간)을 보고 점수가 2 이상인 것
+ * 계획의 시간은 바꾸지 않고 "연결"만 해요
+ */
+function matchPlan(items, { date, time, name, pos }) {
+  let best = null;
+  for (const it of items) {
+    if (it.day_date !== date) continue;
+    let sc = 0;
+    if (pos && it.lat != null && distM(pos, { lat: it.lat, lng: it.lng }) < 300) sc += 3;
+    const a = normName(name);
+    const names = [it.place_name, it.title].map(normName).filter((x) => x.length >= 2);
+    if (a.length >= 2 && names.some((b) => a.includes(b) || b.includes(a))) sc += 2;
+    if (time && it.start_time) {
+      const m = minutesOf(time);
+      const st = minutesOf(hhmm(it.start_time));
+      const en = it.end_time ? minutesOf(hhmm(it.end_time)) : st + 60;
+      if (m >= st - 60 && m <= en + 60) sc += 1;
+    }
+    if (sc >= 2 && (!best || sc > best.sc)) best = { it, sc };
+  }
+  return best?.it || null;
+}
+const planCache = new Map();
+/** 기록장의 계획 일정 (화면에 이미 불러온 것이 있으면 그대로) */
+async function plansOfTrip(tripId) {
+  const have = state.plans.filter((i) => i.trip_id === tripId);
+  if (have.length || state.filter === 'all' || state.filter === tripId) return have;
+  if (!planCache.has(tripId)) planCache.set(tripId, await db.plans(tripId));
+  return planCache.get(tripId);
+}
+const planLabel = (it) => `${it.start_time ? `${hhmm(it.start_time)} ` : ''}${it.title}`;
+/** 계획 연결 칸 (<select>) 내용 */
+function planOptions(items, date, chosen) {
+  const list = items.filter((i) => i.day_date === date);
+  return `<option value="">연결 안 함</option>${list.map((i) => `<option value="${i.id}" ${i.id === chosen ? 'selected' : ''}>${esc(planLabel(i))}</option>`).join('')}`;
+}
 
 // 여행은 시작일~종료일, 모임·일상은 날짜 하나
 function tripFields(f) {
@@ -505,7 +573,7 @@ function candChips(cands, prefix = '', chosen = '') {
 }
 
 // ---------- 상태 ----------
-const state = { me: null, trips: [], places: [], filter: 'all', view: 'map' };
+const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true };
 let map;
 let markerLayer;
 
@@ -770,6 +838,7 @@ async function refresh(fit = false) {
     state.trips = await db.trips();
     if (state.filter !== 'all' && !state.trips.some((t) => t.id === state.filter)) state.filter = 'all';
     state.places = await db.places(state.filter);
+    state.plans = await db.plans(state.filter);
   } catch (err) { toast(err.message); return; }
   renderFilter();
   renderMap(fit);
@@ -820,35 +889,93 @@ function renderMap(fit) {
 
 function placeCard(p) {
   const th = p.photos[0]?.thumb;
+  const plan = p.plan_item_id ? state.plans.find((i) => i.id === p.plan_item_id) : null;
   return `<button class="card" data-place="${p.id}">
     ${th ? `<img class="thumb" src="${esc(th)}" alt="" loading="lazy">` : `<div class="thumb">${catIcon(p.category)}</div>`}
     <div class="body">
+      ${p.visited_time ? `<span class="tl-time">🕒 ${hhmm(p.visited_time)}</span>` : ''}
       <b>${esc(p.name)}</b>
+      ${plan ? `<span class="tl-linked">📋 계획: ${esc(planLabel(plan))}</span>` : ''}
       ${p.comment ? `<span class="comment">${esc(p.comment)}</span>` : ''}
       <small>${catLabel(p.category)} · ${esc(p.author)}${state.filter === 'all' ? ` · ${esc(p.trip_title)}` : ''}${p.photos.length > 1 ? ` · 사진 ${p.photos.length}` : ''}${p.comment_count ? ` · 💬 ${p.comment_count}` : ''}${p.memo ? ' · 📝' : ''}</small>
     </div>
   </button>`;
 }
+const PLAN_ICONS = { PLACE: '📍', MEAL: '🍜', CAFE: '☕', MOVE: '🚌', STAY: '🏨', REST: '🛋️', ETC: '✨' };
+function planCard(i) {
+  const time = i.start_time ? `${hhmm(i.start_time)}${i.end_time ? `<small>~${hhmm(i.end_time)}</small>` : ''}` : '<small>시간<br>미정</small>';
+  const unverified = ['PLACE', 'MEAL', 'CAFE', 'STAY'].includes(i.item_type) && i.place_name && i.verification_status === 'UNVERIFIED';
+  return `<button class="card plan-card" data-plan="${i.id}">
+    <div class="thumb plan-thumb">${time}</div>
+    <div class="body">
+      <span class="plan-tag">📋 계획${i.source === 'AI' ? ' · AI' : ''}</span>
+      <b>${ic(PLAN_ICONS[i.item_type] || '✨')} ${esc(i.title)}</b>
+      <small>${i.place_name && i.place_name !== i.title ? `📍 ${esc(i.place_name)} · ` : ''}${unverified ? '⚠ 미확인 장소 · ' : ''}${state.filter === 'all' ? esc(state.trips.find((t) => t.id === i.trip_id)?.title || '') : '아직 기록 전'}</small>
+    </div></button>`;
+}
+/**
+ * 기록장 타임라인 = 실제 기록(장소·사진) + 여행 계획 일정
+ * - 계획과 같은 데이터(itinerary_items)를 그대로 보여 줘서 일정 화면과 내용이 항상 같아요
+ * - 기록이 계획에 연결되면 기록 카드 하나로 합쳐 보여 주고, 순서는 실제 기록(사진 촬영) 시각 기준
+ * - 날짜는 최근 날짜가 위, 하루 안에서는 시간 순서
+ */
 function renderTimeline() {
   const el = $('#timeline');
-  if (!state.places.length) {
-    el.innerHTML = `<div class="empty"><div class="big">${ic('🗺️')}</div>아직 기록이 없어요</div>`;
+  const linked = new Set(state.places.map((p) => p.plan_item_id).filter(Boolean));
+  const entries = [
+    ...state.places.map((p) => ({ date: visitKey(p), time: hhmm(p.visited_time), kind: 0, id: p.id, html: () => placeCard(p) })),
+    ...state.plans.filter((i) => !linked.has(i.id)).map((i) => ({ date: i.day_date, time: hhmm(i.start_time), kind: 1, id: i.sort_order, html: () => planCard(i) })),
+  ];
+  const foot = `<div class="tl-foot"><button class="primary" id="planAddBtn">＋ 계획 추가</button>
+    <small class="hint">직접 넣거나 AI에게 추천받아요. 기록장의 일정 화면과 같은 일정이에요.</small></div>`;
+  if (!entries.length) {
+    el.innerHTML = `<div class="empty"><div class="big">${ic('🗺️')}</div>아직 기록이 없어요</div>${state.trips.length ? foot : ''}`;
     return;
   }
-  const sorted = [...state.places].sort(byVisit).reverse();
+  entries.sort((a, b) => b.date.localeCompare(a.date)
+    || (a.time ? 0 : 1) - (b.time ? 0 : 1) || a.time.localeCompare(b.time) || a.kind - b.kind || a.id - b.id);
   let html = '';
   let last = null;
-  for (const p of sorted) {
-    const d = visitKey(p);
-    if (d !== last) { html += `<h3 class="tl-date">${fmtDate(d)}</h3>`; last = d; }
-    html += placeCard(p);
+  for (const x of entries) {
+    if (x.date !== last) { html += `<h3 class="tl-date">${fmtDate(x.date)}</h3>`; last = x.date; }
+    html += x.html();
   }
-  el.innerHTML = html;
+  el.innerHTML = html + foot;
 }
 $('#timeline').onclick = (e) => {
   const c = e.target.closest('[data-place]');
-  if (c) openPlace(Number(c.dataset.place));
+  if (c) return openPlace(Number(c.dataset.place));
+  const pl = e.target.closest('[data-plan]');
+  if (pl) return window.Planner?.openItem(state.plans.find((i) => i.id === Number(pl.dataset.plan)));
+  if (e.target.closest('#planAddBtn')) openPlanAdd();
 };
+/** 다른 화면(일정)에서 일정을 바꾼 뒤 타임라인만 다시 */
+window.refreshPlans = async () => {
+  planCache.clear();
+  state.plans = await db.plans(state.filter);
+  renderTimeline();
+};
+
+// ---------- 타임라인 아래 "계획 추가": 직접 / AI ----------
+function openPlanAdd() {
+  const tripsWithDates = state.trips.filter((t) => t.start_date);
+  if (!tripsWithDates.length) { toast('먼저 기록장에 여행 날짜를 정해 주세요'); return; }
+  const def = state.filter !== 'all' ? state.filter : tripsWithDates[0].id;
+  const body = openSheet(`<h2>계획 추가</h2>
+    ${state.filter === 'all' || !tripsWithDates.some((t) => t.id === def) ? `<label class="field"><span>기록장</span><select id="paTrip">${tripsWithDates.map((t) => `<option value="${t.id}" ${t.id === def ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>` : ''}
+    <div class="choice-list">
+      <button class="choice" data-pa="manual"><span class="ic">＋</span><span><b>직접 일정 추가</b><small>시간·장소·예상 비용을 직접 적어요</small></span></button>
+      <button class="choice" data-pa="ai"><span class="ic">✨</span><span><b>AI로 일정 추가</b><small>"근처 카페 추가해 줘"처럼 말하면 지금 일정과 겹치지 않게, 가까운 곳으로 추천해요</small></span></button>
+    </div>`);
+  body.onclick = (e) => {
+    const a = e.target.closest('[data-pa]')?.dataset.pa;
+    if (!a) return;
+    const tripId = Number($('#paTrip', body)?.value || def);
+    if (!state.trips.find((t) => t.id === tripId)?.start_date) { toast('먼저 기록장에 여행 날짜를 정해 주세요'); return; }
+    if (a === 'manual') window.Planner?.addManual(tripId);
+    else window.Planner?.addWithAI(tripId);
+  };
+}
 
 function renderTrips() {
   const places = state.trips.reduce((n, t) => n + t.place_count, 0);
@@ -999,7 +1126,8 @@ function openPlace(id) {
     ${p.comment ? `<p class="pd-comment">${esc(p.comment)}</p>` : ''}
     ${p.memo ? `<div class="pd-memo">${esc(p.memo)}</div>` : ''}
     <div class="pd-meta">
-      <span>📅 ${fmtDate(visitKey(p))}</span>
+      <span>📅 ${fmtDate(visitKey(p))}${p.visited_time ? ` ${hhmm(p.visited_time)}` : ''}</span>
+      ${p.plan_item_id && state.plans.find((i) => i.id === p.plan_item_id) ? `<span>📋 계획: ${esc(planLabel(state.plans.find((i) => i.id === p.plan_item_id)))}</span>` : ''}
       <span>✍️ ${esc(p.author)}</span>
       <span>${kindIcon(trip?.kind)} ${esc(p.trip_title)}</span>
     </div>
@@ -1123,11 +1251,24 @@ function openEditPlace(p) {
       <label class="field"><span>장소 이름</span><input name="name" required maxlength="60" value="${esc(p.name)}"></label>
       <label class="field"><span>한줄 코멘트</span><input name="comment" maxlength="80" value="${esc(p.comment || '')}"></label>
       <label class="field"><span>이야기 (선택)</span><textarea name="memo" maxlength="2000" rows="4" placeholder="그날 있었던 일, 나눴던 이야기">${esc(p.memo || '')}</textarea></label>
-      <label class="field"><span>날짜</span><input type="date" name="visited_at" value="${esc(p.visited_at || '')}"></label>
+      <div class="grid2">
+        <label class="field"><span>날짜</span><input type="date" name="visited_at" value="${esc(p.visited_at || '')}"></label>
+        <label class="field ${state.v005 ? '' : 'hidden'}"><span>시간</span><input type="time" name="visited_time" value="${hhmm(p.visited_time)}"></label>
+      </div>
+      <div class="field ${state.v005 ? '' : 'hidden'}" id="epPlanField"><span>여행 계획과 연결</span><select name="plan_item_id"></select>
+        <small class="hint">연결해도 계획의 시간은 바뀌지 않아요. 타임라인에서는 실제 기록 시간 순서로 보여요.</small></div>
       <div class="field"><span>종류</span>${catPicker(p.category)}</div>
       <button class="primary" type="submit">저장</button>
     </form>`);
-  $('#editForm', body).onsubmit = async (e) => {
+  const ef = $('#editForm', body);
+  let tripPlans = [];
+  const fillPlans = () => {
+    ef.plan_item_id.innerHTML = planOptions(tripPlans, ef.visited_at.value, Number(ef.plan_item_id.value) || p.plan_item_id);
+    $('#epPlanField', body).classList.toggle('hidden', !state.v005 || ef.plan_item_id.options.length < 2);
+  };
+  plansOfTrip(p.trip_id).then((list) => { tripPlans = list; if (body.isConnected) fillPlans(); });
+  ef.visited_at.onchange = fillPlans;
+  ef.onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
     try {
@@ -1135,6 +1276,8 @@ function openEditPlace(p) {
         name: f.name.value.trim(), comment: f.comment.value.trim() || null,
         memo: f.memo.value.trim() || null,
         visited_at: f.visited_at.value || null, category: f.category.value,
+        visited_time: f.visited_time.value || null,
+        plan_item_id: f.plan_item_id.value ? Number(f.plan_item_id.value) : null,
       });
       await refresh();
       openPlace(p.id);
@@ -1220,6 +1363,9 @@ function openBulkImport() {
   let leftovers = [];
   let bmap = null;
   let busy = false;
+  let bulkPlans = []; // 고른 기록장의 여행 계획 일정 (장소마다 연결 추천)
+  const clusterDate = (c) => { const f = c.items.find((it) => it.taken != null); return f ? toYMD(new Date(f.taken)) : today(); };
+  const suggestFor = (c) => matchPlan(bulkPlans, { date: clusterDate(c), time: c.time, name: c.name, pos: c.center })?.id || null;
   const listeners = new AbortController(); // 시트를 닫으면 아래 입력 감지도 같이 해제
 
   const body = openSheet(`<h2>사진으로 한꺼번에 기록</h2>
@@ -1273,9 +1419,15 @@ function openBulkImport() {
       c.nameTouched = false;
       c.category = tripKind === 'gathering' ? 'food' : 'sight';
       c.comment = '';
+      c.time = c.start != null ? timeOfMs(c.start) : '';
+      c.planId = null;
+      c.planTouched = false;
       c.items.forEach((it) => { it.off = false; });
     });
     leftovers.forEach((it) => { it.off = false; });
+    bulkPlans = await plansOfTrip(Number($('#bulkTrip', body).value));
+    if (!body.isConnected) return;
+    clusters.forEach((c) => { c.planId = suggestFor(c); });
     status('');
     renderReview();
     nameClusters();
@@ -1299,6 +1451,11 @@ function openBulkImport() {
       const sel = card.querySelector('[data-cat]');
       if (sel && !c.catTouched) sel.value = c.category;
       card.querySelector('[data-cands]').innerHTML = candChips(c.candidates, `${i}:`, c.name);
+      if (!c.planTouched) { // 이름을 찾은 뒤 계획 연결 추천을 다시
+        c.planId = suggestFor(c) || c.planId;
+        const ps = card.querySelector('[data-plan]');
+        if (ps) ps.value = c.planId || '';
+      }
     }
   }
   function chooseCandidate(ci, j) {
@@ -1335,6 +1492,10 @@ function openBulkImport() {
         <div data-cands>${candChips(c.candidates, `${i}:`, c.name)}</div>
         <div class="bulk-meta">${c.start != null ? `🕒 ${fmtTime(c.start)}${c.end !== c.start ? `~${fmtTime(c.end).split(' ')[1]}` : ''} · ` : ''}사진 ${photoCount(c)}장${c.items.some((it) => it.attachedByTime) ? ' · 위치 없는 사진은 시간으로 붙임' : ''}</div>
         <div class="photo-strip">${c.items.map((it, j) => `<button type="button" class="bulk-ph ${it.off ? 'off' : ''}" data-ph="${i}:${j}"><img src="${it.preview}" alt=""></button>`).join('')}</div>
+        ${state.v005 ? `<div class="grid2 bulk-plan">
+          <label><small>시간</small><input type="time" data-time value="${esc(c.time)}"></label>
+          <label><small>여행 계획과 연결</small><select data-plan>${planOptions(bulkPlans, clusterDate(c), c.planId)}</select></label>
+        </div>` : ''}
         <div class="grid2">
           <select data-cat>${catOpts(c.category)}</select>
           <input data-cmt maxlength="80" placeholder="한줄 코멘트 (선택)" value="${esc(c.comment)}">
@@ -1387,13 +1548,23 @@ function openBulkImport() {
     const c = clusters[Number(card.dataset.c)];
     if (e.target.matches('[data-name]')) { c.name = e.target.value; c.nameTouched = true; }
     if (e.target.matches('[data-cmt]')) c.comment = e.target.value;
+    if (e.target.matches('[data-time]')) c.time = e.target.value;
   }, { signal: listeners.signal });
   body.addEventListener('change', (e) => {
     if (e.target.id === 'leftTarget') { updateSaveButton(); return; }
+    if (e.target.id === 'bulkTrip' && clusters.length) {
+      plansOfTrip(Number(e.target.value)).then((list) => {
+        bulkPlans = list;
+        clusters.forEach((c) => { c.planId = suggestFor(c); c.planTouched = false; });
+        if (body.isConnected) renderReview();
+      });
+      return;
+    }
     const card = e.target.closest('[data-c]');
     if (!card) return;
     const c = clusters[Number(card.dataset.c)];
     if (e.target.matches('[data-cat]')) { c.category = e.target.value; c.catTouched = true; }
+    if (e.target.matches('[data-plan]')) { c.planId = Number(e.target.value) || null; c.planTouched = true; }
     if (e.target.matches('[data-inc]')) {
       c.include = e.target.checked;
       card.classList.toggle('off', !c.include);
@@ -1459,6 +1630,8 @@ function openBulkImport() {
           visited_at: first ? toYMD(new Date(first.taken)) : today(),
           category: c.category,
           comment: c.comment.trim() || null,
+          visited_time: c.time || null,
+          plan_item_id: c.planId || null,
         }, photos.slice(0, MAX_PHOTOS), (n, total) => { btn.textContent = `기록하는 중… ${done + 1}/${todo.length}곳 · 사진 ${n}/${total}`; });
         firstId ??= id;
         photoFailed += failed;
@@ -1514,7 +1687,11 @@ function openAddPlace() {
         <div id="miniMap" class="mini-map"></div>
         <button type="button" class="link" id="myPosBtn">📍 지금 있는 위치 사용</button>
       </div>
-      <label class="field"><span>날짜</span><input type="date" name="visited_at" value="${today()}"></label>
+      <div class="grid2">
+        <label class="field"><span>날짜</span><input type="date" name="visited_at" value="${today()}"></label>
+        <label class="field ${state.v005 ? '' : 'hidden'}"><span>시간 <small id="timeSrc"></small></span><input type="time" name="visited_time"></label>
+      </div>
+      <div class="field hidden" id="apPlanField"><span>여행 계획과 연결</span><select name="plan_item_id"></select><small class="hint" id="apPlanHint"></small></div>
       <div class="field"><span>종류</span>${catPicker('sight')}</div>
       <label class="field"><span>한줄 코멘트 <small id="cnt">0/80</small></span><input name="comment" maxlength="80" placeholder="이곳에서의 한마디"></label>
       <label class="field"><span>이야기 (선택)</span><textarea name="memo" maxlength="2000" rows="3" placeholder="그날 있었던 일, 나눴던 이야기를 길게 남겨도 돼요"></textarea></label>
@@ -1527,6 +1704,33 @@ function openAddPlace() {
   const form = $('#addForm', body);
   const strip = $('#strip', body);
   const results = $('#results', body);
+
+  // 여행 계획 연결: 날짜가 같고 위치·이름·시간이 비슷한 일정을 추천 (계획 시간은 바꾸지 않음)
+  let timeTouched = false;
+  let planTouched = false;
+  let apPlans = [];
+  function suggestPlan() {
+    if (!body.isConnected || !state.v005) return;
+    const date = form.visited_at.value;
+    const cur = planTouched ? (Number(form.plan_item_id.value) || null)
+      : (matchPlan(apPlans, { date, time: form.visited_time.value, name: form.name.value, pos })?.id || null);
+    form.plan_item_id.innerHTML = planOptions(apPlans, date, cur);
+    $('#apPlanField', body).classList.toggle('hidden', form.plan_item_id.options.length < 2);
+    $('#apPlanHint', body).textContent = !planTouched && cur
+      ? '📌 위치·시간이 비슷한 계획을 골라 뒀어요. 연결해도 계획 시간은 바뀌지 않아요.'
+      : '연결해도 계획 시간은 바뀌지 않아요. 타임라인은 실제 기록 시간 순서예요.';
+  }
+  async function loadApPlans() {
+    apPlans = await plansOfTrip(Number(form.trip.value));
+    planTouched = false;
+    suggestPlan();
+  }
+  loadApPlans();
+  form.trip.addEventListener('change', loadApPlans);
+  form.plan_item_id.addEventListener('change', () => { planTouched = true; suggestPlan(); });
+  form.visited_time.addEventListener('input', () => { timeTouched = true; $('#timeSrc', body).textContent = ''; suggestPlan(); });
+  form.visited_at.addEventListener('change', suggestPlan);
+  form.name.addEventListener('change', suggestPlan);
 
   // 미니 지도 (시트가 올라온 뒤 생성해야 크기가 맞음)
   setTimeout(() => {
@@ -1541,6 +1745,7 @@ function openAddPlace() {
   function setPos(lat, lng, zoom) {
     pos = { lat, lng };
     $('#posLabel', body).textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)} (핀을 끌어서 조정)`;
+    suggestPlan();
     if (!mini) return;
     if (!miniMarker) {
       miniMarker = L.marker([lat, lng], { draggable: true }).addTo(mini);
@@ -1627,6 +1832,12 @@ function openAddPlace() {
           toast('사진의 위치 정보로 지도에 표시했어요');
         }
         if (item.date && !dateTouched) form.visited_at.value = item.date;
+        // 사진 촬영 시각으로 기록 시간 채우기 (없거나 틀리면 직접 고칠 수 있어요)
+        if (item.taken != null && !timeTouched && !form.visited_time.value) {
+          form.visited_time.value = timeOfMs(item.taken);
+          $('#timeSrc', body).textContent = '사진 촬영 시간';
+        }
+        suggestPlan();
       });
       if (!body.isConnected) { items.forEach((it) => URL.revokeObjectURL(it.preview)); return; }
       pending.push(...items);
@@ -1700,6 +1911,8 @@ function openAddPlace() {
         category: form.category.value,
         comment: form.comment.value.trim() || null,
         memo: form.memo.value.trim() || null,
+        visited_time: form.visited_time.value || null,
+        plan_item_id: form.plan_item_id.value ? Number(form.plan_item_id.value) : null,
       }, pending, (n, total) => { btn.textContent = `사진 올리는 중… ${n}/${total}`; });
       const id = r.id;
       closeSheet();
@@ -1717,6 +1930,105 @@ function openAddPlace() {
   };
 }
 
+// ---------- 날짜 고르기 (출발일 → 종료일 이어서 고르기) ----------
+// 출발일을 누르면 바로 종료일 고르기로 넘어가고, 출발일보다 이른 날은 고를 수 없어요. 종료일을 고르면 달력이 닫혀요.
+// single: 모임·일상처럼 날짜 하나만 (고르면 바로 닫힘)
+function rangePicker(box, { start = '', end = '', single = false, onChange }) {
+  const st = { start, end, single, open: false, mode: 'start', month: null };
+  const label = (v) => (v ? fmtDate(v).replace(/^\d+년 /, '') : '');
+  const firstOfMonth = (v) => {
+    const d = v ? new Date(`${v}T00:00:00`) : new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  };
+  const emit = () => onChange?.(st.start, st.single ? '' : st.end);
+  function pill(key, title, value, empty) {
+    const on = st.open && st.mode === key;
+    return `<button type="button" class="rc-pill ${on ? 'on' : ''}" data-rc="${key}" aria-expanded="${on}">
+      <small>${title}</small><b>${label(value) || empty}</b></button>`;
+  }
+  function calendar() {
+    const m = st.month;
+    const first = new Date(m.getFullYear(), m.getMonth(), 1);
+    const days = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < first.getDay(); i++) cells.push('<span></span>');
+    const now = today();
+    const range = !st.single && st.start && st.end;
+    for (let d = 1; d <= days; d++) {
+      const v = toYMD(new Date(m.getFullYear(), m.getMonth(), d));
+      const disabled = st.mode === 'end' && st.start && v < st.start;
+      const isStart = v === st.start;
+      const isEnd = !st.single && v === st.end;
+      const cls = ['rc-day', isStart && 'start', isEnd && 'end', range && v > st.start && v < st.end && 'mid',
+        range && st.start !== st.end && 'ranged', v === now && 'today'].filter(Boolean).join(' ');
+      cells.push(`<button type="button" class="${cls}" data-day="${v}" ${disabled ? 'disabled' : ''} aria-pressed="${isStart || isEnd}" aria-label="${fmtDate(v)}">${d}</button>`);
+    }
+    const hint = st.single ? '날짜를 골라 주세요'
+      : st.mode === 'start' ? '출발일을 골라 주세요' : '종료일을 골라 주세요 · 당일치기는 출발일을 한 번 더';
+    return `<div class="rc-cal">
+      <div class="rc-head">
+        <button type="button" class="rc-nav" data-rc="prev" aria-label="이전 달">‹</button>
+        <b>${m.getFullYear()}년 ${m.getMonth() + 1}월</b>
+        <button type="button" class="rc-nav" data-rc="next" aria-label="다음 달">›</button>
+      </div>
+      <p class="rc-hint" aria-live="polite">${hint}</p>
+      <div class="rc-week" aria-hidden="true">${[...'일월화수목금토'].map((w) => `<span>${w}</span>`).join('')}</div>
+      <div class="rc-grid">${cells.join('')}</div>
+      <div class="rc-foot"><button type="button" class="link" data-rc="clear">날짜 지우기</button><button type="button" class="link" data-rc="close">닫기</button></div>
+    </div>`;
+  }
+  function render() {
+    const pills = st.single
+      ? pill('start', '날짜', st.start, '날짜 고르기')
+      : `${pill('start', '출발일', st.start, '고르기')}<span class="rc-arrow" aria-hidden="true">→</span>${pill('end', '종료일', st.end, '고르기')}`;
+    box.innerHTML = `<div class="rc-pills ${st.single ? 'single' : ''}">${pills}</div>${st.open ? calendar() : ''}`;
+  }
+  function open(mode) {
+    st.mode = !st.single && mode === 'end' && st.start ? 'end' : 'start';
+    st.month = firstOfMonth(st.mode === 'end' ? (st.end || st.start) : st.start);
+    st.open = true;
+    render();
+    box.querySelector('.rc-cal')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  box.addEventListener('click', (e) => {
+    const day = e.target.closest('[data-day]');
+    if (day && !day.disabled) {
+      const v = day.dataset.day;
+      if (st.single) { st.start = v; st.open = false; } else if (st.mode === 'start') {
+        st.start = v;
+        if (st.end && st.end < v) st.end = '';
+        st.mode = 'end'; // 출발일을 고르면 바로 종료일 고르기
+      } else { st.end = v; st.open = false; }
+      emit();
+      render();
+      if (st.open) box.querySelector(`[data-day="${v}"]`)?.focus({ preventScroll: true });
+      else box.querySelector(`[data-rc="${st.single ? 'start' : 'end'}"]`)?.focus({ preventScroll: true });
+      return;
+    }
+    const a = e.target.closest('[data-rc]')?.dataset.rc;
+    if (!a) return;
+    if (a === 'start' || a === 'end') {
+      if (st.open && st.mode === a) { st.open = false; render(); } else open(a);
+    } else if (a === 'prev' || a === 'next') {
+      st.month = new Date(st.month.getFullYear(), st.month.getMonth() + (a === 'prev' ? -1 : 1), 1);
+      render();
+    } else if (a === 'clear') {
+      st.start = ''; st.end = ''; st.mode = 'start'; emit(); render();
+    } else if (a === 'close') { st.open = false; render(); }
+  });
+  render();
+  return {
+    setSingle(v) {
+      if (st.single === v) return;
+      st.single = v;
+      st.mode = 'start';
+      st.open = false;
+      emit();
+      render();
+    },
+  };
+}
+
 // ---------- 여행 ----------
 function openTripForm(trip) {
   const kind0 = trip?.kind || 'trip';
@@ -1725,19 +2037,21 @@ function openTripForm(trip) {
       <div class="field"><span>종류</span><div class="cats">${Object.entries(KINDS).map(([k, [, label]]) => `<label>
         <input type="radio" name="kind" value="${k}" ${k === kind0 ? 'checked' : ''}><span>${kindIcon(k)} ${label}</span></label>`).join('')}</div></div>
       <label class="field"><span>이름</span><input name="title" required maxlength="40" value="${esc(trip?.title || '')}"></label>
-      <div class="grid2">
-        <label class="field"><span id="startLabel">시작일</span><input type="date" name="start_date" value="${esc(trip?.start_date || '')}"></label>
-        <label class="field" id="endField"><span>종료일</span><input type="date" name="end_date" value="${esc(trip?.end_date || '')}"></label>
-      </div>
+      <div class="field"><span>날짜</span><div id="tripDates"></div></div>
+      <input type="hidden" name="start_date" value="${esc(trip?.start_date || '')}">
+      <input type="hidden" name="end_date" value="${esc(trip?.end_date || '')}">
       <button class="primary" type="submit">${trip ? '저장' : '만들기'}</button>
     </form>`);
   const tf = $('#tripForm', body);
+  const picker = rangePicker($('#tripDates', body), {
+    start: trip?.start_date || '', end: trip?.end_date || '', single: kind0 !== 'trip',
+    onChange: (st, en) => { tf.start_date.value = st; tf.end_date.value = en; },
+  });
   // 여행은 기간, 모임·일상은 날짜 하나
   function applyKind() {
     const k = tf.kind.value;
     tf.title.placeholder = KINDS[k][2];
-    $('#startLabel', body).textContent = k === 'trip' ? '시작일' : '날짜';
-    $('#endField', body).classList.toggle('hidden', k !== 'trip');
+    picker.setSingle(k !== 'trip');
   }
   tf.onchange = (e) => { if (e.target.name === 'kind') applyKind(); };
   applyKind();
@@ -1756,9 +2070,10 @@ function openTripForm(trip) {
       } else {
         const id = await db.createTrip(data);
         state.filter = id;
+        closeSheet();
+        switchView('trips'); // 기록장 탭에서 바로 일정 만들기 (친구 초대는 위쪽 👥 멤버·초대)
         await refresh(true);
-        openTrip(id);
-        toast('기록장을 만들었어요. 함께한 친구를 초대해 보세요!');
+        toast('기록장을 만들었어요. 일정을 만들어 보세요 ✨');
       }
     } catch (err) { toast(err.message); btn.disabled = false; }
   };

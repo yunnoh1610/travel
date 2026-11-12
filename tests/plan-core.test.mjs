@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   validateGenerateInput, validateReviseInput, checkRange, normalizeGenerated, normalizeRevise, buildGeneratePrompt,
   buildRevisePrompt, nameScore, pickMatch, ValidationError, GENERATE_SCHEMA, REVISE_SCHEMA, UNVERIFIED_WARNING, LIMITS,
+  annotateDistances, overlapsAny,
 } from '../supabase/functions/_shared/plan-core.ts';
 import { verifyItems } from '../supabase/functions/_shared/places.ts';
 
@@ -147,7 +148,7 @@ test('부분 수정: 직접 고친 일정을 건드리면 경고, 바꿀 게 없
   assert.ok(r.warnings.some((w) => w.includes('직접 고친')));
   const none = normalizeRevise({ operations: [], warnings: [] }, current, range, null);
   assert.ok(none.warnings.some((w) => w.includes('찾지 못했어요')));
-  const p = buildRevisePrompt({ tripId: 1, targetDay: null, instruction: '저녁을 늦춰줘', baseRevision: 1 }, range, current, '공주');
+  const p = buildRevisePrompt({ tripId: 1, targetDay: null, instruction: '저녁을 늦춰줘', baseRevision: 1, mode: 'EDIT' }, range, current, { destination: '공주' });
   assert.ok(p.includes('"userEdited": true'));
   assert.throws(() => validateReviseInput({ tripId: 1, targetDay: '2026-12-01', instruction: '', baseRevision: -1 }, range), (e) => e.details.length === 3);
 });
@@ -181,4 +182,31 @@ test('장소 검증: 찾으면 VERIFIED+좌표, 못 찾으면 UNVERIFIED, 이동
   assert.equal(byTitle['지어낸 카페'].lat, null);
   assert.equal(byTitle['지어낸 카페'].placeName, '지어낸 카페', '미확인이어도 AI가 말한 이름은 보여줌');
   assert.equal(byTitle['버스'].placeQuery, null);
+});
+
+test('계획 추가(ADD): 추가만 받고, 겹치는 시간 표시, 동선 거리 계산', () => {
+  const input = validateReviseInput({ tripId: 1, targetDay: '2026-11-21', instruction: '근처 카페 추가해 줘', baseRevision: 3, mode: 'ADD' }, range);
+  assert.equal(input.mode, 'ADD');
+  assert.equal(validateReviseInput({ tripId: 1, instruction: 'x', baseRevision: 0 }, range).mode, 'EDIT');
+  const r = normalizeRevise({ operations: [
+    { op: 'update', itemId: 10, item: { date: '2026-11-21', ...item({ startTime: '09:00' }) }, reason: '' },
+    { op: 'delete', itemId: 11, item: null, reason: '' },
+    { op: 'add', itemId: null, item: { date: '2026-11-21', ...item({ title: '카페 A', type: 'CAFE', placeQuery: '카페 A', startTime: '16:00', endTime: '17:00' }) }, reason: '산책 뒤 휴식' },
+    { op: 'add', itemId: null, item: { date: '2026-11-21', ...item({ title: '카페 B', type: 'CAFE', placeQuery: '카페 B', startTime: '15:00', endTime: '16:00' }) }, reason: '' },
+  ], warnings: [] }, current, range, '2026-11-21', 'ADD');
+  assert.deepEqual(r.operations.map((o) => [o.op, o.item.title, o.conflict]), [['add', '카페 A', false], ['add', '카페 B', true]]);
+  assert.ok(r.warnings.some((w) => w.includes('추가만')));
+  assert.ok(r.warnings.some((w) => w.includes('겹쳐서')));
+  // 확인된 위치로 거리 계산 (공산성 36.46,127.12 기준)
+  Object.assign(r.operations[0].item, { lat: 36.465, lng: 127.125 });
+  Object.assign(r.operations[1].item, { lat: 36.9, lng: 127.12 });
+  const w = annotateDistances(r.operations, current);
+  assert.ok(r.operations[0].distanceKm < 1);
+  assert.ok(r.operations[1].distanceKm > 40);
+  assert.equal(w.length, 1);
+  assert.equal(overlapsAny({ date: '2026-11-21', startTime: '18:30', endTime: null }, current), true, '끝 시간 없는 저녁(18:00) 일정과 겹침');
+  const p = buildRevisePrompt(input, range, current, { destination: '공주', transport: 'WALK', styles: ['CAFE'], travelerCount: 2 });
+  assert.ok(p.includes('add 인 것만'));
+  assert.ok(p.includes('"transport": "WALK"'));
+  assert.ok(p.includes('"lat": 36.46'));
 });

@@ -60,7 +60,12 @@ export interface ReviseInput {
   targetDay: string | null;
   instruction: string;
   baseRevision: number;
+  /** EDIT: 고치기·지우기·추가 / ADD: 지금 일정은 그대로 두고 새 일정만 추천 (기록장 '계획 추가') */
+  mode: 'EDIT' | 'ADD';
 }
+
+/** AI 추천 때 참고하는 여행 조건 (AI 일정 만들기에서 저장한 것) */
+export interface PlanPrefs { destination?: string | null; transport?: string; styles?: string[]; travelerCount?: number }
 
 export interface TripRange { start: string; end: string }
 
@@ -175,7 +180,7 @@ export function validateReviseInput(body: Record<string, unknown>, range: TripRa
   const baseRevision = Number(body.baseRevision);
   if (!Number.isInteger(baseRevision) || baseRevision < 0) errors.push('일정 버전 정보가 없어요. 새로고침해 주세요');
   if (errors.length) throw new ValidationError(errors);
-  return { tripId, targetDay, instruction: instruction!, baseRevision };
+  return { tripId, targetDay, instruction: instruction!, baseRevision, mode: body.mode === 'ADD' ? 'ADD' : 'EDIT' };
 }
 
 export function checkRange(start: unknown, end: unknown): TripRange {
@@ -252,22 +257,37 @@ export interface CurrentItem {
   user_edited: boolean;
 }
 
-export function buildRevisePrompt(input: ReviseInput, range: TripRange, items: CurrentItem[], destination: string | null): string {
+export function buildRevisePrompt(input: ReviseInput, range: TripRange, items: CurrentItem[], prefs: PlanPrefs = {}): string {
+  const rules = input.mode === 'ADD'
+    ? [
+      '아래 기존 일정은 그대로 두고, 사용자 요청에 맞는 새 일정만 추천해 줘.',
+      '- operations 에는 op 가 add 인 것만 넣어. 기존 일정을 update/delete 하지 마.',
+      '- add 의 itemId 는 null, item 은 새 일정 전체 내용이야. 1~5개만.',
+      '- 같은 날 기존 일정과 시간이 겹치지 않게 빈 시간에 넣어. 기존 일정 사이 이동 시간도 생각해.',
+      '- 기존 일정 위치(lat, lng)와 가까운 곳을 우선해. 이동 수단(transport) 기준으로 30분 안쪽이 좋아.',
+      '- 여행 취향(styles)과 인원(travelerCount)을 반영해.',
+    ]
+    : [
+      '아래 기존 일정을 사용자 요청에 맞게 최소한으로 고쳐 줘.',
+      '- 바꿀 항목만 operations 에 넣어. 바꾸지 않는 항목은 넣지 마.',
+      '- update/delete 는 기존 일정의 id 를 itemId 로 써. add 는 itemId 를 null 로.',
+      '- update/add 의 item 은 고친 뒤의 전체 내용이야. delete 는 item 을 null 로.',
+      '- userEdited 가 true 인 일정은 사용자가 직접 고친 것이니, 요청이 그 일정을 직접 가리킬 때만 바꿔.',
+    ];
   return [
-    '아래 기존 일정을 사용자 요청에 맞게 최소한으로 고쳐 줘.',
-    '- 바꿀 항목만 operations 에 넣어. 바꾸지 않는 항목은 넣지 마.',
-    '- update/delete 는 기존 일정의 id 를 itemId 로 써. add 는 itemId 를 null 로.',
-    '- update/add 의 item 은 고친 뒤의 전체 내용이야. delete 는 item 을 null 로.',
-    '- userEdited 가 true 인 일정은 사용자가 직접 고친 것이니, 요청이 그 일정을 직접 가리킬 때만 바꿔.',
-    input.targetDay ? `- ${input.targetDay} 날짜의 일정만 고치고 다른 날짜로 옮기지 마.` : `- 날짜는 ${range.start} ~ ${range.end} 안에서만.`,
+    ...rules,
+    input.targetDay ? `- ${input.targetDay} 날짜 일정만 다루고 다른 날짜로 옮기지 마.` : `- 날짜는 ${range.start} ~ ${range.end} 안에서만.`,
     dataBlock({
-      destination,
+      destination: prefs.destination ?? null,
+      transport: prefs.transport ?? null,
+      styles: prefs.styles ?? [],
+      travelerCount: prefs.travelerCount ?? null,
       dates: { start: range.start, end: range.end },
       request: input.instruction,
       items: items.map((it) => ({
         id: it.id, date: it.day_date, type: it.item_type, title: it.title,
         startTime: it.start_time?.slice(0, 5) ?? null, endTime: it.end_time?.slice(0, 5) ?? null,
-        place: it.place_name, estimatedCost: it.cost_estimate == null ? null : Number(it.cost_estimate),
+        place: it.place_name, lat: it.lat, lng: it.lng, estimatedCost: it.cost_estimate == null ? null : Number(it.cost_estimate),
         notes: it.notes, userEdited: it.user_edited || it.source === 'MANUAL',
       })),
     }),
@@ -442,6 +462,10 @@ export interface ReviseOp {
   op: 'update' | 'add' | 'delete';
   itemId: number | null;
   reason: string | null;
+  /** 추가 제안이 지금 일정과 시간이 겹치는지 (ADD) */
+  conflict?: boolean;
+  /** 같은 날 지금 일정 중 가장 가까운 곳까지 거리 km (좌표를 알 때) */
+  distanceKm?: number | null;
   before: (Omit<DraftItem, 'temporaryId'> & { userEdited: boolean }) | null;
   item: (Omit<DraftItem, 'temporaryId'>) | null;
 }
@@ -465,7 +489,7 @@ const sameContent = (a: Omit<DraftItem, 'temporaryId'>, b: Omit<DraftItem, 'temp
  * AI 수정 제안을 검사. 범위 밖 일정(남의 일정, 다른 날짜)을 가리키는 작업은 버리고,
  * 장소가 바뀌지 않은 update 는 기존 위치·검증 상태를 이어받음
  */
-export function normalizeRevise(raw: unknown, current: CurrentItem[], range: TripRange, targetDay: string | null): { operations: ReviseOp[]; warnings: string[] } {
+export function normalizeRevise(raw: unknown, current: CurrentItem[], range: TripRange, targetDay: string | null, mode: 'EDIT' | 'ADD' = 'EDIT'): { operations: ReviseOp[]; warnings: string[] } {
   const warnings: string[] = [];
   const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const ops = Array.isArray(obj.operations) ? obj.operations : [];
@@ -477,6 +501,7 @@ export function normalizeRevise(raw: unknown, current: CurrentItem[], range: Tri
     const o = (r ?? {}) as Record<string, unknown>;
     const op = String(o.op);
     if (!['update', 'add', 'delete'].includes(op)) continue;
+    if (mode === 'ADD' && op !== 'add') { warnings.push('지금 일정을 바꾸자는 제안은 뺐어요 (추가만 해요)'); continue; }
     const reason = cleanText(o.reason, 120);
     let itemId: number | null = null;
     let beforeRow: CurrentItem | undefined;
@@ -504,18 +529,52 @@ export function normalizeRevise(raw: unknown, current: CurrentItem[], range: Tri
     }
     out.push({ opId: `op-${++n}`, op: op as ReviseOp['op'], itemId, reason, before, item });
   }
-  const proposed = [
-    ...current.filter((c) => !touched.has(Number(c.id))).map((c) => itemFromRow(c)),
-    ...out.filter((o) => o.item).map((o) => o.item!),
-  ];
-  warnings.push(...overlapWarnings(proposed));
+  if (mode === 'ADD') {
+    for (const o of out) o.conflict = overlapsAny(o.item!, current);
+    const c = out.filter((o) => o.conflict).length;
+    if (c) warnings.push(`추천 ${c}개는 지금 일정과 시간이 겹쳐서 선택을 꺼 뒀어요`);
+  } else {
+    const proposed = [
+      ...current.filter((c) => !touched.has(Number(c.id))).map((c) => itemFromRow(c)),
+      ...out.filter((o) => o.item).map((o) => o.item!),
+    ];
+    warnings.push(...overlapWarnings(proposed));
+  }
   if (out.some((o) => o.before?.userEdited)) warnings.push('직접 고친 일정도 바꾸자는 제안이 있어요. 적용 전에 확인해 주세요');
   if (Array.isArray(obj.warnings)) {
     for (const w of obj.warnings.slice(0, 10)) { const s = cleanText(w, 200); if (s) warnings.push(s); }
   }
-  if (!out.length) warnings.push('바꿀 내용을 찾지 못했어요. 요청을 조금 더 구체적으로 적어 주세요');
+  if (!out.length) warnings.push(mode === 'ADD' ? '추천할 일정을 찾지 못했어요. 요청을 조금 바꿔 보세요' : '바꿀 내용을 찾지 못했어요. 요청을 조금 더 구체적으로 적어 주세요');
   else warnings.push(UNVERIFIED_WARNING);
   return { operations: out, warnings: [...new Set(warnings)] };
+}
+
+/** 새 일정이 같은 날 지금 일정과 시간이 겹치는지 (끝 시간이 없으면 1시간으로 봄) */
+export function overlapsAny(item: { date: string; startTime: string | null; endTime: string | null }, current: CurrentItem[]): boolean {
+  if (!item.startTime) return false;
+  const s0 = minutes(item.startTime);
+  const e0 = item.endTime ? minutes(item.endTime) : s0 + 60;
+  return current.some((c) => {
+    if (c.day_date !== item.date || !c.start_time) return false;
+    const s1 = minutes(c.start_time.slice(0, 5));
+    const e1 = c.end_time ? minutes(c.end_time.slice(0, 5)) : s1 + 60;
+    return s0 < e1 && s1 < e0;
+  });
+}
+
+/** 장소 확인 뒤: 추가 제안마다 같은 날 지금 일정(좌표 있는 것)과의 가장 가까운 거리. 멀면 경고 */
+export function annotateDistances(ops: ReviseOp[], current: CurrentItem[], farKm = 10): string[] {
+  const warnings: string[] = [];
+  for (const o of ops) {
+    const it = o.item;
+    if (o.op !== 'add' || !it || it.lat == null || it.lng == null) continue;
+    const pts = current.filter((c) => c.day_date === it.date && c.lat != null && c.lng != null);
+    if (!pts.length) continue;
+    const d = Math.min(...pts.map((c) => distKm({ lat: it.lat!, lng: it.lng! }, { lat: c.lat!, lng: c.lng! })));
+    o.distanceKm = Math.round(d * 10) / 10;
+    if (d > farKm) warnings.push(`'${it.title}' 은(는) 지금 동선에서 약 ${o.distanceKm}km 떨어져 있어요`);
+  }
+  return warnings;
 }
 
 // ---------- 장소 이름 비교 ----------

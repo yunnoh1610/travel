@@ -44,7 +44,11 @@ SQL Editor에서 `supabase\migrate-003-memories.sql` 을 한 번 실행해요. (
 SQL Editor에서 `supabase\migrate-004-planner-scrapbook.sql` 을 한 번 실행해요. (결과: **✔ AI 여행 계획·스크랩북 설정 완료**)
 AI 기능(Edge Function)과 OpenAI 키 설정은 [AI_PLANNER.md](AI_PLANNER.md) 4번을 보세요.
 
-> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` 순서로 실행하면 돼요.
+## 8-2. 기록 시간·일정 연결 (2026-11 추가)
+SQL Editor에서 `supabase\migrate-005-record-time-plan-link.sql` 을 한 번 실행해요. (결과: **✔ 기록 시간·일정 연결 설정 완료**)
+실행 전에도 앱은 동작해요. 실행하면 기록에 사진 촬영 시간이 남고, 기록을 여행 계획 일정에 연결할 수 있어요.
+
+> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` 순서로 실행하면 돼요.
 
 ## 9. 카카오 장소 검색 연결 (한국 장소 이름 정확하게)
 1. https://developers.kakao.com → 카카오 계정으로 로그인 (처음이면 개발자 등록 약관 동의)

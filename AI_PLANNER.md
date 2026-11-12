@@ -116,9 +116,27 @@ npx supabase functions deploy ai-planner --project-ref bkqvcexlcqfciscdgodr
   - 사진(이 여행 사진 다시 쓰기 / 새로 올리기), 글자(손글씨·고딕, 크기, 색, 정렬), 스티커·마스킹테이프, 배경 5종, 액자(폴라로이드·테이프·둥근)
   - 저장하지 않은 편집은 이 기기에 임시 저장 → 다시 열면 이어서 고칠지 물어봐요. 다른 사람이 먼저 저장했으면 "내 편집을 새 페이지로 저장 / 다시 불러오기" 선택
 
+## 5-1. 2026-11 개선 (디자인 · 계획↔기록장 연동 · 사진 시간 · 계획 추가)
+
+| 단계 | 바뀐 점 | 주요 파일 |
+| --- | --- | --- |
+| 1. 디자인·날짜 | 입력칸 제목까지 보라색 테두리가 생기던 문제 수정 (칩 모양 선택지에만 표시) | `planner.css` |
+| | 기록장 만들기·수정의 날짜 고르기를 달력 하나로: 출발일을 고르면 바로 종료일 고르기, 출발일 이전 날은 막힘, 종료일을 고르면 닫힘 (모임·일상은 날짜 하나) | `app.js` `rangePicker()`, `app.css` |
+| | 메인 보라색을 채도 낮은 라벤더(`#6E5FAE`, 흰 글자 대비 5.3:1)로. 버튼·선택·달력·아이콘·탭·지도 경로에 같은 색 | `theme-glass.css`, `index.html`, `app.js`, `icons/trip.svg` |
+| | 모서리 통일: 버튼·입력칸·카드·팝업 14px, 작은 요소 10px, 칩·탭 알약 모양, 아래 창 24px (`--radius`, `--radius-sm`, `--radius-chip`, `--radius-sheet`) | `app.css`, `planner.css`, `theme-glass.css` |
+| 2. 계획↔기록장 | 기록장 타임라인에 여행 계획 일정을 함께 표시. **같은 데이터(`itinerary_items`)** 를 보여 줘서 일정 화면에서 고치거나 지우면 타임라인도 바로 바뀌고, 타임라인에서 계획을 눌러 고쳐도 일정 화면에 반영 | `app.js` `renderTimeline()`, `planner.js` `window.Planner` |
+| 3. 사진 시간 | 사진 EXIF 촬영 시각 → 기록 시간(`places.visited_time`), 사진별 촬영 일시(`photos.taken_at`). 시간이 없거나 틀리면 기록 화면에서 직접 고침 | `app.js`, `migrate-005` |
+| | 위치(300m)·이름·시간(앞뒤 1시간)이 맞는 계획을 자동 추천해 연결(`places.plan_item_id`). 연결해도 **계획 시간은 바뀌지 않고**, 타임라인은 실제 촬영 시간 순서 | `app.js` `matchPlan()` |
+| 4. 새 기록장·계획 추가 | 새 기록장을 만들면 기록장 탭의 일정 화면으로 이동, 일정이 없으면 "AI로 만들기 / 직접 추가 / 다른 기록장 일정 불러오기" | `planner.js` |
+| | 다른 기록장 일정 불러오기: 1일차→1일차 순서로 이 기록장 날짜에 맞춰 복사 (기간을 넘는 날은 제외, 지금 일정은 그대로) | `planner.js` `openImport()` |
+| | 타임라인 아래 **＋ 계획 추가** → 직접 추가 / AI로 추가. AI는 "근처 카페 추가해 줘" 같은 요청으로 **추가만** 추천: 지금 일정과 시간이 겹치면 표시하고 선택을 꺼 둠, 지금 동선에서의 거리 표시(10km 넘으면 경고), 고른 것만 추가 | `planner.js` `openAiAdd()`, `plan-core.ts` (mode `ADD`), `ai-planner/index.ts` |
+
+배포 순서: `migrate-005` 실행 → Edge Function 다시 배포(`npx supabase functions deploy ai-planner --remote=bkqvcexlcqfciscdgodr --use-api`) → 사이트 반영.
+Edge Function을 다시 배포하기 전에도 AI로 추가는 동작해요 (앱이 추가 제안만 걸러 보여 주고, 겹침·거리도 앱에서 계산). 다시 배포하면 AI가 처음부터 추가만, 겹치지 않게, 이동 수단·취향을 반영해 추천해요.
+
 ## 6. 테스트 결과
 
-`npm test` (Node 22.18 이상) — **28개 모두 통과**
+`npm test` (Node 22.18 이상) — **30개 모두 통과** (2026-11 개선 포함: 005 권한·연결 시험, 계획 추가(ADD) 시험)
 
 | ID | 내용 | 결과 | 방법 |
 | --- | --- | --- | --- |

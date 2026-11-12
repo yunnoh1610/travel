@@ -13,7 +13,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
   buildGeneratePrompt, buildRevisePrompt, checkRange, GENERATE_SCHEMA, LIMITS, normalizeGenerated, normalizeRevise,
-  REVISE_SCHEMA, SYSTEM_PROMPT, validateGenerateInput, validateReviseInput, ValidationError, type CurrentItem,
+  REVISE_SCHEMA, SYSTEM_PROMPT, validateGenerateInput, validateReviseInput, ValidationError, annotateDistances, type CurrentItem,
 } from '../_shared/plan-core.ts';
 import { PlaceSearch, verifyItems } from '../_shared/places.ts';
 
@@ -185,16 +185,22 @@ async function revise(body: Record<string, unknown>, userId: string) {
   if (error) throw new HttpError(500, 'INTERNAL', '일정을 불러오지 못했어요');
 
   const destination = typeof prefs.destination === 'string' ? prefs.destination : null;
-  const ai = await callOpenAI(buildRevisePrompt(input, range, items as CurrentItem[], destination), 'itinerary_revision', REVISE_SCHEMA);
-  const result = normalizeRevise(ai.data, items as CurrentItem[], range, input.targetDay);
+  const ai = await callOpenAI(buildRevisePrompt(input, range, items as CurrentItem[], {
+    destination,
+    transport: typeof prefs.transport === 'string' ? prefs.transport : undefined,
+    styles: Array.isArray(prefs.styles) ? prefs.styles as string[] : [],
+    travelerCount: typeof prefs.travelerCount === 'number' ? prefs.travelerCount : undefined,
+  }), 'itinerary_revision', REVISE_SCHEMA);
+  const result = normalizeRevise(ai.data, items as CurrentItem[], range, input.targetDay, input.mode);
 
   const search = new PlaceSearch(env('KAKAO_REST_API_KEY') || null, 8);
   const center = destination ? await search.locate(destination) : null;
   await verifyItems(result.operations.flatMap((o) => (o.item ? [o.item] : [])), search, center);
+  if (input.mode === 'ADD') result.warnings.unshift(...annotateDistances(result.operations, items as CurrentItem[]));
 
   const { data: draft, error: e2 } = await admin.from('ai_drafts').insert({
     trip_id: tripId, created_by: userId, kind: 'REVISE',
-    request_json: { targetDay: input.targetDay, instruction: input.instruction },
+    request_json: { targetDay: input.targetDay, instruction: input.instruction, mode: input.mode },
     result_json: result, base_revision: revision,
   }).select('id').single();
   if (e2) throw new HttpError(500, 'INTERNAL', '초안을 저장하지 못했어요');
