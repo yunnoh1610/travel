@@ -275,3 +275,12 @@ test('이동 방법: 스키마에 있고, 정리해서 남기고, 모르면 null
   const r = normalizeGenerated({ days: [{ date: '2026-11-21', items: [item({ transit: { mode: 'WALK', minutes: 10, detail: '성곽길 따라' } })] }], warnings: [] }, range);
   assert.deepEqual(r.days[0].items[0].transit, { mode: 'WALK', minutes: 10, detail: '성곽길 따라' });
 });
+
+test('일기: 사진 수·빈 칸은 AI에게 보내지 않음 (없는 걸 "없었다"고 쓰지 않게)', () => {
+  const v = validateDiaryInput({ tripId: 3, facts: { place: '공산성', comment: '성곽길 산책', memo: '', tags: [], photoCount: 0 } });
+  const p = buildDiaryPrompt(v, '공주 여행');
+  assert.ok(!p.includes('photoCount'));
+  assert.ok(!p.includes('"memo"'));
+  assert.ok(!p.includes('"tags"'));
+  assert.ok(p.includes('성곽길 산책'));
+});
