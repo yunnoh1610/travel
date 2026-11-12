@@ -255,6 +255,7 @@
     if (!t) { r.innerHTML = '<div class="empty">여행을 찾을 수 없어요</div>'; return; }
     const head = `<div class="section-head"><h2>📔 ${esc(t.title)}</h2>
       <div class="sb-head-btns">${S.pages.length ? '<button class="chip-btn" data-act="story" aria-label="스토리로 보기">▶ 스토리</button>' : ''}<button class="chip-btn" data-act="new-page">＋ 새 페이지</button></div></div>
+      ${typeof roBanner === 'function' ? roBanner(t) : ''}
       ${S.loading || S.error ? '' : booksHtml()}`;
     if (S.loading) { r.innerHTML = `${head}<div class="empty"><div class="spinner"></div>불러오는 중…</div>`; return; }
     if (S.error) {
@@ -939,7 +940,7 @@
     ctx.restore();
     ctx.fillStyle = 'rgba(45, 42, 38, .45)';
     applyFont(ctx, FONTS.basic, 30, BASIC_FONT);
-    ctx.fillText('📒 여행 기록', STORY_W / 2, y + ph + (STORY_H - y - ph) / 2);
+    ctx.fillText('모아로그', STORY_W / 2, y + ph + (STORY_H - y - ph) / 2);
     return c;
   }
 

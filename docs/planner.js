@@ -129,7 +129,8 @@
         ${[['days', '일정'], ['budget', '예산'], ['check', '준비물']].map(([k, label]) =>
           `<button type="button" role="tab" aria-selected="${P.tab === k}" class="${P.tab === k ? 'on' : ''}" data-tab="${k}">${label}</button>`).join('')}
       </div>
-      ${navigator.onLine ? '' : '<div class="notice warn">오프라인이에요. 연결되면 다시 불러와 주세요.</div>'}`;
+      ${navigator.onLine ? '' : '<div class="notice warn">오프라인이에요. 연결되면 다시 불러와 주세요.</div>'}
+      ${typeof roBanner === 'function' ? roBanner(t) : ''}`;
     if (P.loading) { root.innerHTML = `${head}<div class="empty"><div class="spinner"></div>불러오는 중…</div>`; return; }
     if (P.error) { root.innerHTML = head + errorHtml(P.error); return; }
     let body = '';

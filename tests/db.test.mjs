@@ -11,6 +11,7 @@ const sql = (f) => readFileSync(new URL(`../supabase/${f}`, import.meta.url), 'u
 const A = '00000000-0000-0000-0000-00000000000a'; // 여행 만든 사람
 const B = '00000000-0000-0000-0000-00000000000b'; // 멤버
 const C = '00000000-0000-0000-0000-00000000000c'; // 남
+const D = '00000000-0000-0000-0000-00000000000d'; // 보기 전용 멤버 (010)
 
 let db;
 let trip;      // A의 여행 (2026-11-21 ~ 11-23), B 멤버
@@ -61,6 +62,8 @@ before(async () => {
   await db.exec(sql('migrate-008-plan-status.sql'));
   await db.exec(sql('migrate-009-journal-scrapbooks.sql'));
   await db.exec(sql('migrate-009-journal-scrapbooks.sql'));
+  await db.exec(sql('migrate-010-roles.sql'));
+  await db.exec(sql('migrate-010-roles.sql'));
 
   for (const [id, name] of [[A, 'aa'], [B, 'bb'], [C, 'cc']]) {
     await db.query("insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, jsonb_build_object('name', $3::text))",
@@ -111,7 +114,7 @@ test('일정 순서 바꾸기는 그날 일정 전체를 한 번에', async () =
   const now = (await rows(B, "select id from itinerary_items where trip_id = $1 and day_date = '2026-11-21' order by sort_order", [trip])).map((r) => r.id);
   assert.deepEqual(now, order);
   await fails(B, 'select reorder_itinerary($1, $2, $3)', [trip, '2026-11-21', ids], /바뀌었어요/);
-  await fails(C, 'select reorder_itinerary($1, $2, $3)', [trip, '2026-11-21', order], /접근할 수 없어요/);
+  await fails(C, 'select reorder_itinerary($1, $2, $3)', [trip, '2026-11-21', order], /접근할 수 없어요|고칠 권한/);
 });
 
 async function makeDraft(kind, result, owner = A) {
@@ -356,6 +359,66 @@ test('009: 기존 페이지는 여행마다 기본 스크랩북으로 옮겨짐'
   await x.close();
 });
 
+test('010: 역할 — 만든 사람 OWNER, 아이디 초대 기본 편집자, 보기 전용은 못 고침', async () => {
+  await db.query("insert into auth.users (id, email, raw_user_meta_data) values ($1, 'dd@travel-diary.example.com', '{\"name\":\"dd\"}')", [D]);
+  const role = async (u) => (await db.query('select role from trip_members where trip_id = $1 and user_id = $2', [trip, u])).rows[0]?.role;
+  assert.equal(await role(A), 'OWNER');
+  assert.equal(await role(B), 'EDITOR', '아이디로 만든 사람이 초대하면 편집자');
+  // 편집자는 편집자로 초대 못 함, 보기 전용으로는 가능
+  await fails(B, 'select * from add_member_by_username($1, $2, $3)', [trip, 'dd', 'EDITOR'], /만든 사람만/);
+  await rows(B, 'select * from add_member_by_username($1, $2)', [trip, 'dd']);
+  assert.equal(await role(D), 'VIEWER', '편집자가 초대하면 기본 보기 전용');
+
+  // 보기 전용: 보기는 되고 쓰기는 안 됨
+  assert.ok((await rows(D, 'select id from places where trip_id = $1', [trip])).length > 0);
+  await fails(D, "insert into places (trip_id, name, lat, lng) values ($1, 'x', 36, 127)", [trip], /row-level security/);
+  await fails(D, "insert into itinerary_items (trip_id, day_date, title) values ($1, '2026-11-21', 'x')", [trip], /row-level security/);
+  await fails(D, "insert into checklist_items (trip_id, title) values ($1, 'x')", [trip], /row-level security/);
+  await fails(D, "insert into trip_expenses (trip_id, title, amount) values ($1, 'x', 1)", [trip], /row-level security/);
+  await fails(D, "insert into scrapbooks (trip_id, title) values ($1, 'x')", [trip], /row-level security/);
+  await fails(D, "insert into scrapbook_pages (trip_id, title) values ($1, 'x')", [trip], /row-level security/);
+  assert.equal((await rows(D, "update trips set title = 'hack' where id = $1 returning id", [trip])).length, 0);
+  assert.equal((await rows(D, "update itinerary_items set title = 'hack' where trip_id = $1 returning id", [trip])).length, 0);
+  assert.equal((await rows(D, 'delete from checklist_items where trip_id = $1 returning id', [trip])).length, 0);
+  await fails(D, 'select save_plan_prefs($1, $2)', [trip, '{}'], /고칠 권한/);
+  await fails(D, "select reorder_itinerary($1, '2026-11-21', '{}')", [trip], /고칠 권한/);
+  await fails(D, "insert into storage.objects (bucket_id, name, owner_id) values ('photos', $1, $2)", [`${trip}/x.jpg`, D], /row-level security/);
+  const pg = (await rows(A, "insert into scrapbook_pages (trip_id, title) values ($1, '역할') returning id, revision", [trip]))[0];
+  await fails(D, 'select * from save_scrapbook_page($1, $2, $3)', [pg.id, pg.revision, '[]'], /고칠 수 없어요/);
+  // 한마디·즐겨찾기는 보기 전용도
+  const pid = (await rows(D, 'select id from places where trip_id = $1 limit 1', [trip]))[0].id;
+  await rows(D, "insert into place_comments (place_id, body) values ($1, '좋다')", [pid]);
+  await rows(D, 'insert into place_favorites (place_id) values ($1)', [pid]);
+  // 보기 전용은 초대 못 함
+  await fails(D, 'select * from create_invite($1)', [trip], /보기 전용/);
+
+  // 역할은 만든 사람만, OWNER 는 바꿀 수 없음
+  assert.equal((await rows(B, "update trip_members set role = 'EDITOR' where trip_id = $1 and user_id = $2 returning role", [trip, D])).length, 0, '편집자는 역할을 못 바꿈');
+  await fails(A, "update trip_members set role = 'OWNER' where trip_id = $1 and user_id = $2", [trip, D], /만든 사람/);
+  await fails(A, "update trip_members set role = 'VIEWER' where trip_id = $1 and user_id = $2", [trip, A], /만든 사람/);
+  await fails(A, 'update trip_members set user_id = $1 where trip_id = $2 and user_id = $3', [C, trip, D], /permission denied/);
+  assert.equal((await rows(A, "update trip_members set role = 'EDITOR' where trip_id = $1 and user_id = $2 returning role", [trip, D]))[0].role, 'EDITOR');
+  assert.ok((await rows(D, "insert into checklist_items (trip_id, title) values ($1, '편집자가 됨') returning id", [trip])).length);
+  await rows(A, "update trip_members set role = 'VIEWER' where trip_id = $1 and user_id = $2", [trip, D]);
+});
+
+test('010: 초대 링크 — 기본 보기 전용, 편집자 링크는 만든 사람만, 이미 멤버면 역할 그대로', async () => {
+  await fails(B, 'select * from create_invite($1, false, $2)', [trip, 'EDITOR'], /만든 사람만/);
+  const v = (await rows(B, 'select * from create_invite($1)', [trip]))[0];
+  assert.equal(v.role, 'VIEWER');
+  const e = (await rows(A, 'select * from create_invite($1, false, $2)', [trip, 'EDITOR']))[0];
+  assert.equal(e.role, 'EDITOR');
+  assert.notEqual(e.token, v.token);
+  assert.equal((await rows(C, 'select * from invite_info($1)', [v.token]))[0].role, 'VIEWER');
+  await rows(C, 'select * from accept_invite($1)', [v.token]);
+  assert.equal((await db.query('select role from trip_members where trip_id = $1 and user_id = $2', [trip, C])).rows[0].role, 'VIEWER');
+  // 이미 멤버면 편집자 링크로 들어와도 역할은 그대로
+  const again = (await rows(C, 'select * from accept_invite($1)', [e.token]))[0];
+  assert.equal(again.already, true);
+  assert.equal((await db.query('select role from trip_members where trip_id = $1 and user_id = $2', [trip, C])).rows[0].role, 'VIEWER');
+  await rows(A, 'delete from trip_members where trip_id = $1 and user_id = $2', [trip, C]);
+});
+
 test('멤버가 나가면 새 자료도 못 봄 (TC-15)', async () => {
   assert.ok((await rows(B, 'select id from itinerary_items where trip_id = $1', [trip])).length > 0);
   await rows(B, 'delete from trip_members where trip_id = $1 and user_id = $2', [trip, B]);
@@ -377,7 +440,7 @@ test('되돌리기 SQL 이 기존 테이블을 남기고 새 테이블만 지움
   await x.exec(SUPABASE_STUB);
   for (const f of ['schema.sql', 'migrate-002-username.sql', 'migrate-003-memories.sql', 'migrate-004-planner-scrapbook.sql',
     'migrate-005-record-time-plan-link.sql', 'migrate-006-scrapbook-design.sql', 'migrate-007-trip-info.sql', 'migrate-008-plan-status.sql',
-    'migrate-009-journal-scrapbooks.sql', 'rollback-009-journal-scrapbooks.sql', 'rollback-008-plan-status.sql', 'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
+    'migrate-009-journal-scrapbooks.sql', 'migrate-010-roles.sql', 'rollback-010-roles.sql', 'rollback-009-journal-scrapbooks.sql', 'rollback-008-plan-status.sql', 'rollback-007-trip-info.sql', 'rollback-006-scrapbook-design.sql',
     'rollback-005-record-time-plan-link.sql', 'rollback-004-planner-scrapbook.sql']) {
     await x.exec(sql(f));
   }

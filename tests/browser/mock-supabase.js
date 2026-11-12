@@ -38,6 +38,13 @@
     scrapbooks: [],
     place_favorites: [],
   };
+  // DB 설정 010: 멤버 역할 (?no010 이면 그 전 DB). 여행 3은 내가 보기 전용
+  db.trips.push({ id: 3, title: '서준의 제주 여행', kind: 'trip', start_date: '2026-12-01', end_date: '2026-12-03', owner_id: 'u-b', created_at: now() });
+  db.trip_members.push({ trip_id: 3, user_id: 'u-b' }, { trip_id: 3, user_id: 'u-a' });
+  db.places.push({ id: 5, trip_id: 3, user_id: 'u-b', name: '성산일출봉', lat: 33.458, lng: 126.942, visited_at: '2026-12-01', comment: '해 뜨는 거 봤다', memo: null, category: 'nature', created_at: now() });
+  if (!/no010/.test(location.search)) {
+    db.trip_members.forEach((m) => { m.role = db.trips.find((t) => t.id === m.trip_id)?.owner_id === m.user_id ? 'OWNER' : (m.trip_id === 3 ? 'VIEWER' : 'EDITOR'); });
+  }
   // DB 설정 009: 기록 제목·감정·태그·즐겨찾기, 여러 스크랩북 (?no009 이면 그 전 DB)
   if (/no009/.test(location.search)) { delete db.scrapbooks; delete db.place_favorites; } else {
     Object.assign(db.places[0], { title: '성곽 위 첫 산책', mood: 'HAPPY', tags: ['산책', '역사'] });
@@ -122,6 +129,9 @@
       if (window.MOCK.no009 && src === 'places' && (new009.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new009.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new009.test(k))))) {
         return err('column places.title does not exist', '42703');
       }
+      if (window.MOCK.no010 && src === 'trip_members' && (/\brole\b/.test(this.cols || '') || (this.vals && 'role' in this.vals))) {
+        return err('column trip_members.role does not exist', '42703');
+      }
       const new008 = /\bstatus\b|assignees/;
       if (window.MOCK.no008 && src === 'itinerary_items' && (new008.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new008.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new008.test(k))))) {
         return err('column itinerary_items.status does not exist', '42703');
@@ -187,6 +197,13 @@
   // ---------- RPC (SQL 함수를 단순화해서 흉내) ----------
   const rpcs = {
     ping: () => 'ok',
+    create_invite: ({ p_trip_id, p_role }) => [{ token: `tok-${p_trip_id}-${p_role || 'EDITOR'}`, expires_at: new Date(Date.now() + 7 * 864e5).toISOString(), ...(window.MOCK.no010 ? {} : { role: p_role || 'VIEWER' }) }],
+    add_member_by_username: ({ p_trip_id, p_username, p_role }) => {
+      const p = db.profiles.find((x) => x.username === p_username);
+      if (!p) throw { message: '그런 아이디를 가진 사람이 없어요' };
+      if (!db.trip_members.some((m) => m.trip_id === p_trip_id && m.user_id === p.id)) db.trip_members.push({ trip_id: p_trip_id, user_id: p.id, ...(window.MOCK.no010 ? {} : { role: p_role || 'EDITOR' }) });
+      return [{ id: p.id, name: p.name, username: p.username }];
+    },
     save_plan_prefs: ({ p_trip_id, p_prefs }) => { plan(p_trip_id).prefs = p_prefs; return null; },
     reorder_itinerary: ({ p_trip_id, p_day, p_ids }) => {
       const day = db.itinerary_items.filter((i) => i.trip_id === p_trip_id && i.day_date === p_day);
@@ -344,7 +361,7 @@
       async signInWithPassword() { return { data: { session: { user: ME } }, error: null }; },
     },
   };
-  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), no007: /no007/.test(location.search), no008: /no008/.test(location.search), no009: /no009/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
+  window.MOCK = { db, failAI: false, no005: /no005/.test(location.search), no007: /no007/.test(location.search), no008: /no008/.test(location.search), no009: /no009/.test(location.search), no010: /no010/.test(location.search), removed: [], bumpRevision(tid = 1) { bump(tid); } };
   window.supabase = { createClient: () => client };
   window.TRAVEL_CONFIG = { url: 'https://mock.local', key: 'mock' };
 })();

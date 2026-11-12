@@ -1,4 +1,6 @@
-# ✈️ 여행 기록
+# 모아로그 (MOALOG)
+
+<img src="brand/lockup/moalog-horizontal.svg" alt="모아로그" width="320">
 
 여러 명이 함께 쓰는 여행 기록 웹앱이에요. 폰 브라우저에 맞춰 만들었어요.
 

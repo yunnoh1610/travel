@@ -399,3 +399,24 @@ main { flex: 1; position: relative; overflow: hidden; }
 .diary-preview { margin-top: 8px; padding: 12px; border: 1px dashed var(--accent); border-radius: var(--radius); background: var(--card); display: flex; flex-direction: column; gap: 6px; }
 .diary-preview p { margin: 0; white-space: pre-wrap; line-height: 1.6; }
 .diary-preview .mini-seg { margin: 0; }
+
+/* ===== Phase 4: 멤버 역할 · 보기 전용 ===== */
+.role-chip { display: inline-block; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 999px; background: #eceff0; color: #4b5563; margin-left: 4px; }
+.role-chip.owner { background: #fff4d6; color: #7a5a00; }
+.role-chip.editor { background: var(--accent-soft, #ece8f7); color: var(--accent); }
+.role-sel { padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); font-size: 13px; max-width: 120px; }
+.search-row .role-sel { flex: none; }
+.ro-banner { font-size: 13.5px; }
+/* 보기 전용 여행: 추가·수정 버튼 숨김 (서버에서도 막혀 있어요) */
+body.read-only #fab, body.no-edit-trips #fab,
+body.read-only .plan-actions, body.read-only .pi-tools, body.read-only [data-act="add-expense"], body.read-only [data-exp],
+body.read-only #ckForm, body.read-only [data-ckdel], body.read-only [data-act="ck-defaults"],
+body.read-only [data-act="new-page"], body.read-only .sb-edit-btn, body.read-only [data-pmenu],
+body.read-only [data-act="new-book"], body.read-only [data-act="book-menu"], body.read-only [data-st="edit"],
+body.read-only [data-act="ai-helper"], body.read-only [data-act="add-item"], body.read-only [data-act="edit-trip"] { display: none !important; }
+body.read-only .ck-list input { pointer-events: none; opacity: .6; }
+body.read-only [data-m="edit"], body.read-only [data-m="import"] { display: none !important; }
+
+/* ===== 브랜드: 모아로그 로고 (로그인 화면) ===== */
+.brand-logo { margin: 0 0 4px; line-height: 0; }
+.brand-logo img { width: min(260px, 80%); height: auto; }

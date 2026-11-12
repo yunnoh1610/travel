@@ -119,8 +119,10 @@ async function authUser(req: Request) {
 
 async function loadTrip(tripId: number, userId: string) {
   // 클라이언트가 보낸 tripId 만 믿지 않고, 이 사용자가 실제 멤버인지 DB에서 확인
-  const { data: m } = await admin.from('trip_members').select('trip_id').eq('trip_id', tripId).eq('user_id', userId).maybeSingle();
+  // select('*'): 역할 칸(migrate-010) 전이어도 동작
+  const { data: m } = await admin.from('trip_members').select('*').eq('trip_id', tripId).eq('user_id', userId).maybeSingle();
   if (!m) throw new HttpError(403, 'FORBIDDEN', '이 기록장에 접근할 수 없어요');
+  if (m.role === 'VIEWER') throw new HttpError(403, 'FORBIDDEN', '보기 전용 멤버는 AI 기능을 쓸 수 없어요. 여행을 만든 사람에게 편집 권한을 부탁해 주세요');
   const { data: trip } = await admin.from('trips').select('id, title, start_date, end_date').eq('id', tripId).single();
   if (!trip) throw new HttpError(403, 'FORBIDDEN', '이 기록장에 접근할 수 없어요');
   const { data: plan } = await admin.from('trip_plans').select('revision, prefs').eq('trip_id', tripId).maybeSingle();

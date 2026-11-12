@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>여행 기록 앱 — 브랜드 가이드 (1차 시안)</title>
+<link rel="icon" href="symbol/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap">
+<style>
+  :root { --lav: #9276CE; --lav-d: #7A5FBE; --lav-l: #B9A6E6; --plum: #3B2F5C; --night: #231D33; --cream: #FFF8EB; --coral: #F4A9A8; --coral-d: #E8807E; --sage: #A8CBB9; --line: #e8e2f3; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: var(--plum); background: #faf8fd; line-height: 1.55; }
+  header { background: var(--lav); color: #fff; padding: 40px 24px 32px; }
+  header h1 { margin: 0 0 6px; font-family: "Gowun Dodum", sans-serif; font-size: 30px; }
+  header p { margin: 0; opacity: .92; }
+  main { max-width: 1040px; margin: 0 auto; padding: 8px 20px 60px; }
+  section { margin-top: 36px; }
+  h2 { font-family: "Gowun Dodum", sans-serif; font-size: 22px; margin: 0 0 4px; }
+  h2 small { font-size: 13px; color: var(--lav-d); font-family: inherit; margin-left: 6px; letter-spacing: .08em; }
+  .lead { color: #6b6380; margin: 0 0 16px; font-size: 14.5px; }
+  .grid { display: grid; gap: 14px; }
+  .g2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .g3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .card p { margin: 6px 0 0; font-size: 13.5px; color: #6b6380; }
+  .stage { border-radius: 14px; padding: 22px; display: flex; align-items: center; justify-content: center; min-height: 130px; }
+  .stage.light { background: var(--cream); }
+  .stage.white { background: #fff; border: 1px dashed var(--line); }
+  .stage.dark { background: var(--night); }
+  .stage img { max-width: 100%; height: auto; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: #efe9fb; color: var(--lav-d); }
+  .tag.rec { background: var(--coral); color: var(--plum); }
+  .sizes { display: flex; align-items: flex-end; gap: 22px; flex-wrap: wrap; }
+  .sizes figure { margin: 0; text-align: center; font-size: 12px; color: #6b6380; }
+  .sizes img { display: block; margin: 0 auto 6px; }
+  .phone { width: 260px; border-radius: 30px; padding: 26px 18px; background: linear-gradient(160deg, #f3d9c7, #c9b7ec); display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px 10px; }
+  .phone.dark { background: linear-gradient(160deg, #2a2340, #0f0c16); }
+  .phone div { text-align: center; font-size: 10.5px; color: #2b2533; }
+  .phone.dark div { color: #eee; }
+  .phone img, .phone i { width: 48px; height: 48px; border-radius: 12px; display: block; margin: 0 auto 4px; }
+  .phone i { background: rgba(255,255,255,.55); }
+  .sw { border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #fff; }
+  .sw .chip { height: 86px; }
+  .sw div.t { padding: 10px 12px; font-size: 13px; }
+  .sw b { display: block; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; background: #fff; border-radius: 14px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { background: #f4f0fb; }
+  .pv { display: inline-block; padding: 4px 10px; border-radius: 8px; font-weight: 700; }
+  .ok { color: #0b7a44; font-weight: 700; } .warn { color: #a15c00; font-weight: 700; }
+  ul.files { columns: 2; font-size: 13px; padding-left: 18px; } @media (max-width: 640px) { ul.files { columns: 1; } }
+  code { background: #f1ecfa; padding: 1px 6px; border-radius: 6px; font-size: 12.5px; }
+  .dont { position: relative; } .dont::after { content: '✕'; position: absolute; top: 8px; right: 12px; color: #c0392b; font-weight: 900; }
+</style>
+</head>
+<body>
+<header>
+  <h1>여행 기록 앱 브랜드 가이드 <span style="font-size:15px;opacity:.85">1차 시안</span></h1>
+  <p>함께 떠나고, 기록하고, 간직하다 · Plan together. Capture moments. Keep memories.</p>
+</header>
+<main>
+
+<section>
+  <h2>1. 브랜드명 후보 <small>NAMING</small></h2>
+  <p class="lead">심볼은 이름과 상관없이 하나로 쓰고, 워드마크만 후보별로 만들었어요. 회의에서 이름을 정하면 그 세트를 앱에 적용해요.</p>
+  <div class="grid g3">
+    <div class="card"><span class="tag rec">1안 · 제안서 추천</span><h3 style="margin-top:8px">여행노트 · TRAVEL NOTE</h3>
+      <div class="stage light"><img src="lockup/yeohaengnote-stacked.svg" alt="여행노트 로고" width="200"></div>
+      <p>바로 이해되는 이름. 계획·기록·꾸미기를 "노트 한 권"으로 묶어요. 일반 명사라 상표·검색에서 구분이 약할 수 있어요.</p></div>
+    <div class="card"><span class="tag">2안 · 확장성</span><h3 style="margin-top:8px">모아로그 · MOALOG</h3>
+      <div class="stage light"><img src="lockup/moalog-stacked.svg" alt="모아로그 로고" width="200"></div>
+      <p>"모으다 + Log". 여행 밖(모임·기념일·일상)으로 넓히기 좋고 독창적이에요. 처음엔 여행 앱인지 바로 드러나지 않아요.</p></div>
+    <div class="card"><span class="tag">보조안 · 감성</span><h3 style="margin-top:8px">모먼트립 · MOMENTRIP</h3>
+      <div class="stage light"><img src="lockup/momentrip-stacked.svg" alt="모먼트립 로고" width="200"></div>
+      <p>"Moment + Trip". 순간을 간직한다는 감성이 강해요. 뜻을 한 번 설명해야 할 수 있고, 여행에 조금 더 묶여요.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>2. 심볼 <small>SYMBOL</small></h2>
+  <p class="lead">스크랩북형(제안서 A안): <b>스프링 노트</b> 위 <b>사진 한 장</b> + 모서리의 <b>지도 핀</b>. 요소는 세 가지로 제한해 작게 봐도 실루엣이 남아요.</p>
+  <div class="grid g3">
+    <div class="card"><h3>앱 아이콘 (밝은 배경)</h3><div class="stage white"><img src="symbol/app-icon.svg" width="150" alt=""></div><p>노트 = 기록·꾸미기, 사진 = 추억, 핀 = 장소·계획</p></div>
+    <div class="card"><h3>앱 아이콘 (어두운 배경)</h3><div class="stage dark"><img src="symbol/app-icon-dark.svg" width="150" alt=""></div><p>다크 모드·어두운 홈 화면용</p></div>
+    <div class="card"><h3>심볼만 (배경 없음)</h3><div class="stage light"><img src="symbol/mark.svg" width="120" alt=""></div><p>문서·인쇄·스티커용. 한 가지 색 버전도 있어요</p></div>
+    <div class="card"><h3>한 색 (밝은 바탕)</h3><div class="stage white"><img src="symbol/mark-mono-plum.svg" width="110" alt=""></div><p>도장·각인·흑백 인쇄</p></div>
+    <div class="card"><h3>한 색 (어두운 바탕)</h3><div class="stage dark"><img src="symbol/mark-mono-white.svg" width="110" alt=""></div><p>사진 위·어두운 배경</p></div>
+    <div class="card"><h3>파비콘 (작은 크기 전용)</h3><div class="stage white"><img src="symbol/favicon.svg" width="110" alt=""></div><p>32px 이하에서는 사진·줄을 빼고 면으로 단순화</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>3. 작은 크기 식별성 <small>SCALE TEST</small></h2>
+  <p class="lead">검토 기준 2 — 24px·16px 에서도 노트와 핀이 구분되는지 확인하세요.</p>
+  <div class="card">
+    <div class="sizes">
+      <figure><img src="symbol/app-icon.svg" width="128" alt="">128px</figure>
+      <figure><img src="symbol/app-icon.svg" width="64" alt="">64px</figure>
+      <figure><img src="symbol/app-icon.svg" width="48" alt="">48px</figure>
+      <figure><img src="symbol/favicon.svg" width="32" alt="">32px (파비콘)</figure>
+      <figure><img src="symbol/favicon.svg" width="24" alt="">24px</figure>
+      <figure><img src="symbol/favicon.svg" width="16" alt="">16px</figure>
+      <figure><img src="png/favicon-16.png" width="16" alt="">16px PNG</figure>
+    </div>
+  </div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h3>홈 화면 (밝은 배경화면)</h3><div class="stage" style="padding:8px">
+      <div class="phone"><div><i></i>지도</div><div><i></i>카메라</div><div><img src="symbol/app-icon.svg" alt="">여행노트</div><div><i></i>메모</div><div><i></i>날씨</div><div><i></i>캘린더</div><div><i></i>사진</div><div><i></i>설정</div></div></div></div>
+    <div class="card"><h3>홈 화면 (어두운 배경화면)</h3><div class="stage" style="padding:8px">
+      <div class="phone dark"><div><i style="background:rgba(255,255,255,.15)"></i>지도</div><div><i style="background:rgba(255,255,255,.15)"></i>카메라</div><div><img src="symbol/app-icon-dark.svg" alt="">여행노트</div><div><i style="background:rgba(255,255,255,.15)"></i>메모</div><div><i style="background:rgba(255,255,255,.15)"></i>날씨</div><div><i style="background:rgba(255,255,255,.15)"></i>캘린더</div><div><i style="background:rgba(255,255,255,.15)"></i>사진</div><div><i style="background:rgba(255,255,255,.15)"></i>설정</div></div></div></div>
+  </div>
+</section>
+
+<section>
+  <h2>4. 워드마크 · 조합형 로고 <small>LOGOTYPE</small></h2>
+  <p class="lead">글꼴: <b>고운돋움</b>(Gowun Dodum, SIL OFL) 을 살짝 굵게 다듬어 윤곽선으로 바꿨어요 — 글꼴이 없는 곳에서도 똑같이 보여요. 마지막 글자 밑 코랄 띠는 마스킹테이프를 뜻해요.</p>
+  <div class="grid g2">
+    <div class="card"><h3>가로형 · 밝은 배경</h3><div class="stage light"><img src="lockup/yeohaengnote-horizontal.svg" width="360" alt=""></div></div>
+    <div class="card"><h3>가로형 · 어두운 배경</h3><div class="stage dark"><img src="lockup/yeohaengnote-horizontal-dark.svg" width="360" alt=""></div></div>
+    <div class="card"><h3>한글 워드마크</h3><div class="stage white"><img src="wordmark/yeohaengnote-ko.svg" width="260" alt=""></div></div>
+    <div class="card"><h3>영문 워드마크</h3><div class="stage white"><img src="wordmark/yeohaengnote-en.svg" width="260" alt=""></div></div>
+    <div class="card"><h3>모아로그 가로형</h3><div class="stage light"><img src="lockup/moalog-horizontal.svg" width="360" alt=""></div></div>
+    <div class="card"><h3>모먼트립 가로형</h3><div class="stage light"><img src="lockup/momentrip-horizontal.svg" width="360" alt=""></div></div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>여백 · 최소 크기</h3>
+    <p>로고 둘레에는 심볼 높이의 <b>¼ 이상</b> 빈 공간을 둬요. 가로형은 <b>높이 24px</b>, 심볼은 <b>16px(파비콘 버전)</b> 보다 작게 쓰지 않아요. 앱 화면 위쪽에는 가로형을 높이 28~32px 로 써요.</p></div>
+</section>
+
+<section>
+  <h2>5. 색 <small>COLOR</small></h2>
+  <p class="lead">기존 보라 UI를 유지하면서 스크랩북의 종이 감성을 더해요. 파스텔은 면·장식에만, 글자는 짙은 색으로 써요.</p>
+  <div class="grid g3">
+    <div class="sw"><div class="chip" style="background:#9276CE"></div><div class="t"><b>라벤더 #9276CE</b>메인 브랜드 · 아이콘 배경 · 큰 버튼</div></div>
+    <div class="sw"><div class="chip" style="background:#7A5FBE"></div><div class="t"><b>딥 라벤더 #7A5FBE</b>링크·작은 강조 글자 (흰 바탕 4.99:1)</div></div>
+    <div class="sw"><div class="chip" style="background:#3B2F5C"></div><div class="t"><b>플럼 #3B2F5C</b>로고 글자 · 제목 · 본문</div></div>
+    <div class="sw"><div class="chip" style="background:#FFF8EB"></div><div class="t"><b>크림 #FFF8EB</b>스크랩북 종이 · 노트 · 밝은 배경</div></div>
+    <div class="sw"><div class="chip" style="background:#F4A9A8"></div><div class="t"><b>코랄 #F4A9A8</b>스티커 · 테이프 · 강조 면 (핀은 #E8807E)</div></div>
+    <div class="sw"><div class="chip" style="background:#A8CBB9"></div><div class="t"><b>세이지 #A8CBB9</b>카테고리 · 보조 면 · 자연</div></div>
+  </div>
+  <table style="margin-top:14px">
+    <tr><th>글자 / 배경</th><th>미리보기</th><th>명도 대비</th><th>쓰임</th></tr>
+    <tr><td>플럼 / 크림</td><td><span class="pv" style="background:#FFF8EB;color:#3B2F5C">여행노트</span></td><td class="ok">11.38 : 1</td><td>본문 OK</td></tr>
+    <tr><td>딥 라벤더 / 흰색</td><td><span class="pv" style="background:#fff;color:#7A5FBE;border:1px solid #eee">여행노트</span></td><td class="ok">4.99 : 1</td><td>작은 글자 OK (AA)</td></tr>
+    <tr><td>흰색 / 라벤더</td><td><span class="pv" style="background:#9276CE;color:#fff">여행노트</span></td><td class="warn">3.68 : 1</td><td>18px 이상 굵은 글자·버튼만</td></tr>
+    <tr><td>크림 / 나이트</td><td><span class="pv" style="background:#231D33;color:#FFF8EB">여행노트</span></td><td class="ok">15.35 : 1</td><td>다크 모드 본문</td></tr>
+    <tr><td>플럼 / 코랄</td><td><span class="pv" style="background:#F4A9A8;color:#3B2F5C">여행노트</span></td><td class="ok">6.35 : 1</td><td>스티커 위 글자</td></tr>
+    <tr><td>플럼 / 세이지</td><td><span class="pv" style="background:#A8CBB9;color:#3B2F5C">여행노트</span></td><td class="ok">6.82 : 1</td><td>카테고리 칩</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>6. 글꼴 <small>TYPOGRAPHY</small></h2>
+  <div class="grid g3">
+    <div class="card"><h3>로고 · 큰 제목</h3><p style="font-family:'Gowun Dodum';font-size:28px;color:#3B2F5C;margin:8px 0">함께 떠나고, 기록하고</p><p>고운돋움 (SIL OFL) — 부드러운 라운드</p></div>
+    <div class="card"><h3>손글씨 · 스크랩북</h3><p style="font-size:26px;margin:8px 0;font-family:cursive">우리의 하루를 한 장씩</p><p>나눔손글씨 갈맷글 (앱에 이미 들어 있음) — 스티커·메모·일기</p></div>
+    <div class="card"><h3>본문 · UI</h3><p style="font-size:16px;margin:8px 0;color:#3B2F5C">일정 3개 · 예산 24,400원 · 오후 2:30</p><p>시스템 고딕 (Pretendard / Apple SD 산돌고딕 Neo / 맑은 고딕) — 숫자·작은 글자 가독성</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>7. 이렇게는 쓰지 않아요 <small>DON'T</small></h2>
+  <div class="grid g3">
+    <div class="card dont"><div class="stage white"><img src="symbol/app-icon.svg" width="110" style="transform:scaleX(1.35)" alt=""></div><p>늘리거나 눌러서 비율을 바꾸기</p></div>
+    <div class="card dont"><div class="stage white"><img src="symbol/app-icon.svg" width="110" style="filter:hue-rotate(140deg)" alt=""></div><p>브랜드 색이 아닌 색으로 바꾸기</p></div>
+    <div class="card dont"><div class="stage" style="background:#F4A9A8"><img src="lockup/yeohaengnote-horizontal-dark.svg" width="220" alt=""></div><p>파스텔 배경 위에 밝은 글자 로고 (대비 부족)</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>8. 파일 <small>FILES</small></h2>
+  <p class="lead">모두 <code>brand/</code> 폴더에 있어요. SVG 는 편집 가능한 벡터 원본이에요 (생성 스크립트로 다시 만들 수 있음).</p>
+  <ul class="files">
+    <li><code>symbol/app-icon.svg</code> · <code>-dark</code> · <code>-maskable</code></li>
+    <li><code>symbol/mark.svg</code> · <code>mark-mono-plum</code> · <code>mark-mono-white</code></li>
+    <li><code>symbol/favicon.svg</code></li>
+    <li><code>wordmark/{이름}-ko(-dark).svg</code> · <code>-en(-dark).svg</code></li>
+    <li><code>lockup/{이름}-horizontal(-dark).svg</code> · <code>-stacked(-dark).svg</code></li>
+    <li><code>png/icon-512.png</code> · <code>icon-192.png</code> · <code>icon-maskable-512.png</code> (PWA)</li>
+    <li><code>png/apple-touch-icon.png</code> (180px, iOS 홈 화면)</li>
+    <li><code>png/favicon.ico</code> (16·32·48) · <code>favicon-16/32/48.png</code></li>
+    <li>이름: <code>yeohaengnote</code>=여행노트 · <code>moalog</code>=모아로그 · <code>momentrip</code>=모먼트립</li>
+  </ul>
+  <div class="card"><h3>남은 확인</h3><p>상표·도메인·앱스토어 이름 중복은 최종 확정 전에 따로 확인해야 해요. 이 시안은 디자이너 회의용 1차안이며, 디자이너가 다듬을 때 SVG 를 그대로 열어 고칠 수 있어요.</p></div>
+</section>
+</main>
+</body>
+</html>

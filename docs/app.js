@@ -189,7 +189,7 @@ const db = {
     const trips = await q(sb.from('trip_list').select('*'));
     const ids = trips.map((t) => t.id);
     const members = ids.length
-      ? await q(sb.from('trip_members').select('trip_id, user_id, profiles(name, username)').in('trip_id', ids))
+      ? await q(sb.from('trip_members').select(`trip_id, user_id, ${state.v010 ? 'role, ' : ''}profiles(name, username)`).in('trip_id', ids))
       : [];
     await signPaths(trips.map((t) => t.cover_path));
     const key = (t) => t.start_date || (t.created_at || '').slice(0, 10);
@@ -199,9 +199,11 @@ const db = {
         place_count: Number(t.place_count) || 0,
         cover: t.cover_path ? urlOf(t.cover_path) : null,
         members: members.filter((m) => m.trip_id === t.id)
-          .map((m) => ({ id: m.user_id, name: m.profiles?.name || '?', username: m.profiles?.username || '' }))
+          .map((m) => ({ id: m.user_id, name: m.profiles?.name || '?', username: m.profiles?.username || '',
+            role: m.user_id === t.owner_id ? 'OWNER' : (m.role || 'EDITOR') }))
           .sort((a, b) => a.name.localeCompare(b.name)),
       }))
+      .map((t) => ({ ...t, myRole: t.members.find((m) => m.id === state.me.id)?.role || (t.owner_id === state.me.id ? 'OWNER' : 'EDITOR') }))
       .sort((a, b) => key(b).localeCompare(key(a)) || b.id - a.id);
   },
   async places(filter) {
@@ -253,10 +255,13 @@ const db = {
     if (!sbFiles.error && sbFiles.data?.length) await removeFiles(sbFiles.data.map((x) => x.asset_path)).catch(() => {});
     await qChanged(sb.from('trips').delete().eq('id', id).select('id'));
   },
-  async addMemberByUsername(tripId, username) {
-    const rows = await q(sb.rpc('add_member_by_username', { p_trip_id: tripId, p_username: username }));
+  async addMemberByUsername(tripId, username, role) {
+    const args = { p_trip_id: tripId, p_username: username };
+    if (state.v010 && role) args.p_role = role;
+    const rows = await q(sb.rpc('add_member_by_username', args));
     return rows[0];
   },
+  setMemberRole: (tripId, userId, role) => qChanged(sb.from('trip_members').update({ role }).eq('trip_id', tripId).eq('user_id', userId).select('user_id')),
   removeMember: (tripId, userId) =>qChanged(sb.from('trip_members').delete().eq('trip_id', tripId).eq('user_id', userId).select('user_id')),
   /** 장소를 만들고 사진을 올림. 사진 일부가 실패해도 장소와 성공한 사진은 남기고 { id, sent, failed } 를 돌려줌 */
   async createPlace(tripId, f, items, onProgress) {
@@ -316,8 +321,10 @@ const db = {
     await removeFiles([ph.path, ph.thumb_path]);
     await qChanged(sb.from('photos').delete().eq('id', ph.id).select('id'));
   },
-  async createInvite(tripId, reset) {
-    const rows = await q(sb.rpc('create_invite', { p_trip_id: tripId, p_reset: !!reset }));
+  async createInvite(tripId, reset, role) {
+    const args = { p_trip_id: tripId, p_reset: !!reset };
+    if (state.v010 && role) args.p_role = role;
+    const rows = await q(sb.rpc('create_invite', args));
     return rows[0];
   },
   async inviteInfo(token) {
@@ -548,7 +555,7 @@ function openPlanSheet(it) {
     ${it.notes ? `<div class="pd-memo">${esc(it.notes)}</div>` : ''}
     ${recs.length ? `<div class="field"><span>실제 기록</span>${recs.map((p) => `<button type="button" class="card" data-rec="${p.id}" style="margin-bottom:6px">
         <div class="body"><b>📷 ${esc(p.name)}</b><small>${fmtDate(visitKey(p))}${p.visited_time ? ` ${hhmm(p.visited_time)} 방문` : ''}</small></div></button>`).join('')}</div>` : ''}
-    <div class="btn-row">
+    <div class="btn-row ${canEdit(it.trip_id) ? '' : 'hidden'}">
       ${state.v008 && st !== 'DONE' ? '<button class="btn" data-act="done">✓ 방문 완료</button>' : ''}
       <button class="btn" data-act="edit">✏️ 수정</button>
       ${state.v008 && st === 'PLANNED' ? '<button class="btn" data-act="cancel">취소</button>' : ''}
@@ -569,6 +576,22 @@ function openPlanSheet(it) {
       } catch (err) { toast(err.message); }
     }
   };
+}
+
+// ---------- 멤버 역할 (DB 설정 010): 만든 사람 · 편집자 · 보기 전용 ----------
+const ROLES = { OWNER: ['👑', '만든 사람'], EDITOR: ['✏️', '편집자'], VIEWER: ['👀', '보기 전용'] };
+const tripById = (id) => state.trips.find((t) => t.id === id);
+/** 이 여행을 고칠 수 있는지 (만든 사람·편집자). 010 전이면 모든 멤버 */
+const canEdit = (tOrId) => { const t = typeof tOrId === 'object' ? tOrId : tripById(tOrId); return !!t && t.myRole !== 'VIEWER'; };
+const editableTrips = () => state.trips.filter(canEdit);
+const roBanner = (t) => (t && !canEdit(t)
+  ? '<div class="notice ro-banner">👀 <b>보기 전용</b> 멤버예요. 둘러보고 한마디·즐겨찾기를 남길 수 있어요. 고치려면 여행을 만든 사람에게 편집 권한을 부탁해 주세요.</div>' : '');
+/** 지금 고른 여행이 보기 전용이면 화면의 추가·수정 버튼을 숨겨요 (서버에서도 막혀 있어요) */
+function applyRoleUi() {
+  const t = state.filter !== 'all' ? tripById(state.filter) : null;
+  document.body.classList.toggle('read-only', !!t && !canEdit(t));
+  if (state.filter === 'all') document.body.classList.toggle('no-edit-trips', state.trips.length > 0 && !editableTrips().length);
+  else document.body.classList.remove('no-edit-trips');
 }
 
 // 여행은 시작일~종료일, 모임·일상은 날짜 하나
@@ -988,7 +1011,7 @@ async function showInviteBanner() {
   if (!inviteToken) { el.classList.add('hidden'); return; }
   try {
     const inv = await db.inviteInfo(inviteToken);
-    el.innerHTML = `<b>${esc(inv.inviter)}</b>님이 <b>‘${esc(inv.title)}’</b> 여행에 초대했어요.<br>
+    el.innerHTML = `<b>${esc(inv.inviter)}</b>님이 <b>‘${esc(inv.title)}’</b> 여행에 ${inv.role === 'VIEWER' ? '<b>보기 전용</b>으로 ' : ''}초대했어요.<br>
       <small>처음이면 회원가입, 이미 계정이 있으면 로그인하면 바로 참여돼요.</small>`;
     el.classList.remove('error');
     setAuthMode('signup');
@@ -1024,6 +1047,8 @@ async function enterApp(user) {
   try { const r = await sb.from('itinerary_items').select('status').limit(1); state.v008 = !r.error; } catch { state.v008 = false; }
   // DB 설정 009(기록 제목·감정·태그·즐겨찾기·위치 선택, 여러 스크랩북)가 있는지
   try { const r = await sb.from('scrapbooks').select('id').limit(1); state.v009 = !r.error; } catch { state.v009 = false; }
+  // DB 설정 010(멤버 역할: 만든 사람·편집자·보기 전용)이 있는지
+  try { const r = await sb.from('trip_members').select('role').limit(1); state.v010 = !r.error; } catch { state.v010 = false; }
   // 계정에 저장된 테마가 있으면 이 기기에도 적용 (다른 기기에서 바꾼 테마 따라가기)
   const savedTheme = user.user_metadata?.theme;
   if (savedTheme && usableTheme(savedTheme) && savedTheme !== currentTheme) applyTheme(savedTheme);
@@ -1049,7 +1074,7 @@ function initMap() {
   markerLayer = L.layerGroup().addTo(map);
   // 한 여행을 고른 상태에서 지도를 누르면 "이 위치를 일정에 추가"
   map.on('click', (e) => {
-    if (state.filter === 'all' || !window.Planner) return;
+    if (state.filter === 'all' || !window.Planner || !canEdit(state.filter)) return;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'chip-btn';
@@ -1070,6 +1095,7 @@ async function refresh(fit = false) {
     state.plans = await db.plans(state.filter);
     await loadFavs();
   } catch (err) { toast(err.message); return; }
+  applyRoleUi();
   renderFilter();
   renderMap(fit);
   renderJournal();
@@ -1189,7 +1215,7 @@ function renderJournal() {
   const el = $('#journal');
   if (!el) return;
   const t = state.filter !== 'all' ? state.trips.find((x) => x.id === state.filter) : null;
-  const head = `<div class="section-head"><h2>📒 기록장</h2><small class="muted">${t ? esc(t.title) : '모든 여행'} · ${state.places.length}곳</small></div>`;
+  const head = `<div class="section-head"><h2>📒 기록장</h2><small class="muted">${t ? esc(t.title) : '모든 여행'} · ${state.places.length}곳</small></div>${roBanner(t)}`;
   if (!state.places.length) {
     el.innerHTML = `${head}<div class="empty"><div class="big">${ic('🗺️')}</div>아직 기록이 없어요<br>
       <small>오른쪽 아래 ＋ 버튼으로 다녀온 곳과 사진을 남겨 보세요</small></div>`;
@@ -1202,7 +1228,10 @@ function renderJournal() {
         <div class="jr-chips" id="jrChips"></div>
       </div><div id="jrList"></div>`;
     $('#jrSearch', el).value = state.jq.text;
-  } else $('.section-head', el).outerHTML = head;
+  } else {
+    $('.ro-banner', el)?.remove();
+    $('.section-head', el).outerHTML = head;
+  }
   renderJournalChips();
   renderJournalList();
 }
@@ -1372,6 +1401,14 @@ $('#meBtn').onclick = () => {
       <small class="hint">바꾸면 지금 쓰는 기기를 뺀 다른 기기에서는 로그아웃돼요.</small>
     </form>
     <div class="divider"></div>
+    <h3 style="margin:0 0 6px">📦 백업 내보내기</h3>
+    <small class="hint">내가 속한 여행의 기록·일정·예산·준비물·스크랩북을 파일로 받아요. 휴대폰보다 컴퓨터에서 받는 걸 추천해요.</small>
+    <div class="choice-list" style="margin-top:8px">
+      <button class="choice" data-backup="json"><span class="ic">🗂️</span><span><b>모든 여행 자료 (JSON)</b><small>글·일정·스크랩북 배치 정보. 사진은 파일 이름만</small></span></button>
+      <button class="choice" data-backup="zip"><span class="ic">🖼️</span><span><b>여행 하나 + 사진 원본 (ZIP)</b><small>고른 여행의 자료와 사진 원본을 한 파일로</small></span></button>
+    </div>
+    <div id="backupMsg" class="hint"></div>
+    <div class="divider"></div>
     <div class="btn-row">
       <button class="btn" id="logoutBtn">로그아웃</button>
       <button class="btn danger" id="leaveBtn">회원 탈퇴</button>
@@ -1405,6 +1442,7 @@ $('#meBtn').onclick = () => {
       btn.disabled = false;
     }
   };
+  body.querySelectorAll('[data-backup]').forEach((b) => { b.onclick = () => runBackup(b.dataset.backup, body); });
   $('#logoutBtn', body).onclick = async () => {
     await sb.auth.signOut().catch(() => {});
     state.me = null;
@@ -1449,11 +1487,12 @@ function openPlace(id) {
   if (!p) return;
   const trip = state.trips.find((t) => t.id === p.trip_id);
   const tripOwner = trip?.owner_id === state.me.id;
-  const canEdit = p.user_id === state.me.id || tripOwner;
+  const editor = canEdit(trip);
+  const canEditP = editor && (p.user_id === state.me.id || tripOwner);
   const body = openSheet(`
     ${p.photos.length ? `<div class="gallery">${p.photos.map((ph) => `<div class="g-item">
         <img src="${esc(ph.url)}" alt="" loading="lazy" data-full="${esc(ph.url)}">
-        ${canEdit || ph.user_id === state.me.id ? `<button class="g-del" data-photo="${ph.id}" aria-label="사진 삭제">✕</button>` : ''}
+        ${canEditP || (editor && ph.user_id === state.me.id) ? `<button class="g-del" data-photo="${ph.id}" aria-label="사진 삭제">✕</button>` : ''}
       </div>`).join('')}</div>` : ''}
     <div class="pd-top"><span class="pd-cat">${catLabel(p.category)}</span>
       ${state.v009 ? `<button type="button" class="fav-btn ${state.favs.has(p.id) ? 'on' : ''}" data-act="fav" aria-pressed="${state.favs.has(p.id)}" aria-label="즐겨찾기">${state.favs.has(p.id) ? '★' : '☆'}</button>` : ''}</div>
@@ -1470,9 +1509,9 @@ function openPlace(id) {
     </div>
     <div class="btn-row">
       ${p.lat != null ? `<button class="btn" data-act="locate">${ic('🗺️')} 지도에서 보기</button>` : '<span class="muted small-note">📍 위치 없는 기록 (수정에서 위치를 정할 수 있어요)</span>'}
-      <label class="btn">📷 사진 추가<input type="file" accept="image/*" multiple hidden></label>
-      <button class="btn" data-act="to-plan">＋ 일정에 추가</button>
-      ${canEdit ? '<button class="btn" data-act="edit">✏️ 수정</button><button class="btn danger" data-act="delete">삭제</button>' : ''}
+      ${editor ? `<label class="btn">📷 사진 추가<input type="file" accept="image/*" multiple hidden></label>
+      <button class="btn" data-act="to-plan">＋ 일정에 추가</button>` : ''}
+      ${canEditP ? '<button class="btn" data-act="edit">✏️ 수정</button><button class="btn danger" data-act="delete">삭제</button>' : ''}
     </div>
     <div class="divider"></div>
     <h3 class="cm-title">💬 함께한 친구들의 한마디 <small id="cmCount"></small></h3>
@@ -1569,7 +1608,7 @@ function openPlace(id) {
       } catch (err) { toast(err.message); }
     }
   };
-  $('input[type=file]', body).onchange = async (e) => {
+  if ($('input[type=file]', body)) $('input[type=file]', body).onchange = async (e) => {
     let files = [...e.target.files];
     e.target.value = '';
     const room = MAX_PHOTOS - p.photos.length;
@@ -1675,11 +1714,127 @@ function openEditPlace(p) {
   };
 }
 
+// ---------- 📦 백업 내보내기 ----------
+// 서버(Supabase)에 남아 있는 내 여행 자료를 파일로 받아 두는 기능. 무료 플랜은 자동 백업을 내려받을 수 없어서 직접 받아 둬요.
+async function tripBackupData(tripIds) {
+  const pick = async (table, cols = '*', col = 'trip_id') => {
+    const r = await sb.from(table).select(cols).in(col, tripIds);
+    return r.error ? [] : r.data; // DB 설정 전 테이블은 건너뜀
+  };
+  const [trips, members, places, plans, items, expenses, checklist, books, pages, els] = await Promise.all([
+    pick('trips', '*', 'id'), pick('trip_members', '*, profiles(name, username)'), pick('places', '*, photos(*), place_comments(*)'),
+    pick('trip_plans'), pick('itinerary_items'), pick('trip_expenses'), pick('checklist_items'),
+    pick('scrapbooks'), pick('scrapbook_pages'), pick('scrapbook_elements'),
+  ]);
+  return {
+    app: '모아로그', version: 1, exported_at: new Date().toISOString(), exported_by: state.me.userid || state.me.email,
+    note: '사진 파일은 photos[].path (ZIP 백업이면 photos/ 폴더). 다시 불러오기 기능은 아직 없어요 — 보관용이에요.',
+    trips: trips.map((t) => ({
+      ...t,
+      members: members.filter((m) => m.trip_id === t.id),
+      places: places.filter((p) => p.trip_id === t.id),
+      plan: plans.find((x) => x.trip_id === t.id) || null,
+      itinerary: items.filter((x) => x.trip_id === t.id),
+      expenses: expenses.filter((x) => x.trip_id === t.id),
+      checklist: checklist.filter((x) => x.trip_id === t.id),
+      scrapbooks: books.filter((x) => x.trip_id === t.id),
+      scrapbook_pages: pages.filter((x) => x.trip_id === t.id).map((pg) => ({ ...pg, elements: els.filter((e) => e.page_id === pg.id) })),
+    })),
+  };
+}
+function saveBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+// 압축하지 않는 ZIP (사진은 이미 JPEG 라 압축 효과가 거의 없어요)
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(buf) { let c = 0xFFFFFFFF; for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function makeZip(files) { // files: [{ name, data: Uint8Array }]
+  const enc = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const d = new Date();
+  const dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const crc = crc32(f.data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint16(6, 0x0800, true); local.setUint16(8, 0, true);
+    local.setUint16(10, dosTime, true); local.setUint16(12, dosDate, true); local.setUint32(14, crc, true);
+    local.setUint32(18, f.data.length, true); local.setUint32(22, f.data.length, true); local.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(local.buffer), name, f.data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+    c.setUint16(12, dosTime, true); c.setUint16(14, dosDate, true); c.setUint32(16, crc, true);
+    c.setUint32(20, f.data.length, true); c.setUint32(24, f.data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, offset, true);
+    central.push(new Uint8Array(c.buffer), name);
+    offset += 30 + name.length + f.data.length;
+  }
+  const size = central.reduce((n, x) => n + x.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, size, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/zip' });
+}
+const stamp = () => today().replace(/-/g, '');
+const safeName = (x) => String(x || '여행').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 40);
+async function runBackup(kind, sheet) {
+  const msg = $('#backupMsg', sheet);
+  const say = (t) => { if (msg) msg.textContent = t; };
+  if (!state.trips.length) return toast('내보낼 여행이 없어요');
+  if (kind === 'json') {
+    try {
+      say('자료를 모으는 중…');
+      const data = await tripBackupData(state.trips.map((t) => t.id));
+      saveBlob(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }), `모아로그-백업-${stamp()}.json`);
+      say(`✓ 여행 ${data.trips.length}개를 파일로 받았어요`);
+    } catch (err) { say(''); toast(err.message); }
+    return;
+  }
+  // ZIP: 여행 하나 고르기
+  const t = state.filter !== 'all' ? tripById(state.filter) : null;
+  const id = t ? t.id : Number(prompt(`사진까지 받을 여행 번호를 골라 주세요\n${state.trips.map((x, i) => `${i + 1}. ${x.title}`).join('\n')}`, '1') || 0);
+  const trip = t || state.trips[id - 1];
+  if (!trip) return;
+  try {
+    say('자료를 모으는 중…');
+    const data = await tripBackupData([trip.id]);
+    const photos = data.trips[0]?.places.flatMap((p) => p.photos || []) || [];
+    const assets = (data.trips[0]?.scrapbook_pages || []).flatMap((pg) => pg.elements.map((e) => e.asset_path)).filter(Boolean);
+    const paths = [...new Set([...photos.map((ph) => ph.path), ...assets])];
+    await signPaths(paths);
+    const files = [{ name: 'backup.json', data: new TextEncoder().encode(JSON.stringify(data, null, 1)) }];
+    let done = 0;
+    let failed = 0;
+    await runPool(paths, 3, async (path) => {
+      try {
+        const r = await fetch(urlOf(path));
+        if (!r.ok) throw new Error(String(r.status));
+        files.push({ name: `photos/${path}`, data: new Uint8Array(await r.arrayBuffer()) });
+      } catch { failed++; }
+      say(`사진 받는 중… ${++done}/${paths.length}`);
+    });
+    saveBlob(makeZip(files), `모아로그-${safeName(trip.title)}-${stamp()}.zip`);
+    say(`✓ ‘${trip.title}’ 자료와 사진 ${paths.length - failed}장을 받았어요${failed ? ` (사진 ${failed}장은 실패)` : ''}`);
+  } catch (err) { say(''); toast(err.message); }
+}
+
 // ---------- 장소 기록하기 ----------
 $('#fab').onclick = () => {
   if (!state.trips.length) {
     toast('먼저 여행을 만들어 주세요');
     openTripForm();
+    return;
+  }
+  if (!editableTrips().length || (state.filter !== 'all' && !canEdit(state.filter))) {
+    toast('보기 전용 여행이라 기록을 남길 수 없어요');
     return;
   }
   const body = openSheet(`<h2>무엇을 기록할까요?</h2>
@@ -2054,7 +2209,9 @@ function openAddPlace(pre = {}) {
     openTripForm();
     return;
   }
-  const defTrip = pre.tripId || (state.filter !== 'all' ? state.filter : state.trips[0].id);
+  const tripsW = editableTrips();
+  if (!tripsW.length) { toast('보기 전용 여행이라 기록을 남길 수 없어요'); return; }
+  const defTrip = pre.tripId || (state.filter !== 'all' && canEdit(state.filter) ? state.filter : tripsW[0].id);
   let processing = 0; // 줄이는 중인 사진 묶음 수 (끝나기 전엔 저장 버튼 잠금)
   const pending = [];
   let pos = pre.lat != null ? { lat: pre.lat, lng: pre.lng } : null;
@@ -2065,7 +2222,7 @@ function openAddPlace(pre = {}) {
 
   const body = openSheet(`<h2>${pre.planId ? '방문 기록 남기기' : '장소 기록하기'}</h2>
     <form id="addForm" autocomplete="off">
-      <label class="field"><span>여행</span><select name="trip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
+      <label class="field"><span>여행</span><select name="trip">${tripsW.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
       <div class="field"><span>사진 <small id="photoCount"></small></span>
         <div class="photo-strip" id="strip">
           <label class="add-photo">＋<small>사진 선택</small><input type="file" accept="image/*" multiple hidden id="photoInput"></label>
@@ -2579,16 +2736,17 @@ async function copyText(text, input) {
   try { return document.execCommand('copy'); } catch { return false; }
 }
 
-async function openInviteLink(trip, reset = false) {
-  const inv = await db.createInvite(trip.id, reset);
+async function openInviteLink(trip, reset = false, role) {
+  const inv = await db.createInvite(trip.id, reset, role);
+  const invRole = inv.role || role;
   const url = `${APP_URL}?invite=${encodeURIComponent(inv.token)}`;
   const text = `‘${trip.title}’ 여행에 초대할게요! 링크를 눌러 가입하면 같이 기록할 수 있어요.`;
   const daysLeft = Math.max(1, Math.ceil((Date.parse(inv.expires_at) - Date.now()) / 86400000));
   const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
   const isOwner = trip.owner_id === state.me.id;
 
-  const body = openSheet(`<h2>초대 링크</h2>
-    <p class="muted" style="margin-top:-6px">‘${esc(trip.title)}’ · 앞으로 ${daysLeft}일 동안 쓸 수 있어요</p>
+  const body = openSheet(`<h2>${invRole && ROLES[invRole] ? `${ROLES[invRole][0]} ${ROLES[invRole][1]} ` : ''}초대 링크</h2>
+    <p class="muted" style="margin-top:-6px">‘${esc(trip.title)}’ · 앞으로 ${daysLeft}일 동안 쓸 수 있어요${invRole === 'VIEWER' ? ' · 받은 사람은 보기 전용으로 들어와요' : invRole === 'EDITOR' ? ' · 받은 사람은 함께 고칠 수 있어요' : ''}</p>
     ${isLocal ? `<div class="invite-banner error">지금 주소(${esc(location.host)})는 이 컴퓨터에서만 열려요.
       친구에게는 GitHub Pages 주소에서 만든 링크를 보내 주세요.</div>` : ''}
     <input class="link-box" id="inviteUrl" readonly value="${esc(url)}">
@@ -2604,7 +2762,7 @@ async function openInviteLink(trip, reset = false) {
   body.onclick = async (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'share') {
-      try { await navigator.share({ title: '추억 기록 초대', text, url }); } catch { /* 취소 */ }
+      try { await navigator.share({ title: '모아로그 초대', text, url }); } catch { /* 취소 */ }
     } else if (act === 'copy') {
       const ok = await copyText(`${text}\n${url}`, $('#inviteUrl', body));
       toast(ok ? '링크를 복사했어요. 카톡에 붙여넣어 보내세요' : '복사가 안 되네요. 링크를 길게 눌러 복사해 주세요');
@@ -2613,7 +2771,7 @@ async function openInviteLink(trip, reset = false) {
     } else if (act === 'reset') {
       if (!confirm('지금 링크를 못 쓰게 하고 새 링크를 만들까요?')) return;
       try {
-        await openInviteLink(trip, true);
+        await openInviteLink(trip, true, invRole);
         toast('새 링크를 만들었어요');
       } catch (err) { toast(err.message); }
     }
@@ -2624,45 +2782,71 @@ function openTrip(id) {
   const t = state.trips.find((x) => x.id === id);
   if (!t) return;
   const isOwner = t.owner_id === state.me.id;
+  const editor = canEdit(t);
+  const roleOf = (m) => (state.v010 ? `<span class="role-chip ${m.role.toLowerCase()}">${ROLES[m.role][0]} ${ROLES[m.role][1]}</span>` : '');
   const body = openSheet(`<h2>${kindIcon(t.kind)} ${esc(t.title)}</h2>
-    <p class="muted" style="margin-top:-6px">${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳</p>
+    <p class="muted" style="margin-top:-6px">${kindName(t.kind)} · 📅 ${fmtRange(t.start_date, t.end_date)} · 📍 ${t.place_count}곳${state.v010 ? ` · 나: ${ROLES[t.myRole][1]}` : ''}</p>
+    ${roBanner(t)}
     <div class="btn-row">
       <button class="btn" data-act="view">${ic('🗺️')} 지도로 보기</button>
-      <button class="btn" data-act="edit">✏️ 수정</button>
+      ${editor ? '<button class="btn" data-act="edit">✏️ 수정</button>' : ''}
     </div>
     <div class="divider"></div>
     <h3 style="margin:0 0 6px">함께한 사람 (${t.members.length})</h3>
     <div>${t.members.map((m) => `<div class="member">
         <div class="avatar">${initial(m.name)}</div>
-        <div class="grow">${esc(m.name)} <small>${m.username ? `@${esc(m.username)}` : ''}${m.id === t.owner_id ? ' · 만든 사람' : ''}${m.id === state.me.id ? ' (나)' : ''}</small></div>
+        <div class="grow">${esc(m.name)} <small>${m.username ? `@${esc(m.username)}` : ''}${!state.v010 && m.id === t.owner_id ? ' · 만든 사람' : ''}${m.id === state.me.id ? ' (나)' : ''}</small>
+          ${isOwner && state.v010 && m.id !== t.owner_id ? '' : roleOf(m)}</div>
+        ${isOwner && state.v010 && m.id !== t.owner_id ? `<select class="role-sel" data-role-of="${m.id}" aria-label="${esc(m.name)} 역할">
+          <option value="EDITOR" ${m.role === 'EDITOR' ? 'selected' : ''}>✏️ 편집자</option><option value="VIEWER" ${m.role === 'VIEWER' ? 'selected' : ''}>👀 보기 전용</option></select>` : ''}
         ${isOwner && m.id !== t.owner_id ? `<button data-kick="${m.id}">내보내기</button>` : ''}
       </div>`).join('')}</div>
-    <button class="primary" data-act="invite" style="margin-top:14px">🔗 초대 링크 보내기</button>
-    <small class="hint">카톡 등으로 링크를 보내면, 친구가 누르고 가입하는 즉시 이 여행에 들어와요.</small>
+    ${state.v010 ? '<small class="hint">✏️ 편집자는 기록·일정·스크랩북을 함께 고치고, 👀 보기 전용은 보고 한마디·즐겨찾기만 남겨요. 역할은 만든 사람이 바꿔요.</small>' : ''}
+    ${editor ? `${state.v010 ? `<div class="btn-row" style="margin-top:14px">
+        <button class="primary" data-act="invite" data-role="VIEWER" style="flex:1">🔗 보기 전용 초대 링크</button>
+        ${isOwner ? '<button class="btn" data-act="invite" data-role="EDITOR" style="flex:1">✏️ 편집자 초대 링크</button>' : ''}
+      </div>
+      <small class="hint">링크를 받은 친구는 가입하는 즉시 이 여행에 들어와요. 링크만으로 편집 권한을 주지 않으려면 보기 전용 링크를 보내세요.</small>`
+    : `<button class="primary" data-act="invite" style="margin-top:14px">🔗 초대 링크 보내기</button>
+      <small class="hint">카톡 등으로 링크를 보내면, 친구가 누르고 가입하는 즉시 이 여행에 들어와요.</small>`}
     <form id="inviteForm" style="margin-top:14px">
       <div class="search-row"><input name="username" placeholder="이미 가입한 친구는 아이디로 초대" autocapitalize="off" autocorrect="off" required
-        style="padding:12px 14px;border:1px solid var(--line);border-radius:12px;font-size:16px"><button type="submit">초대</button></div>
-    </form>
+        style="padding:12px 14px;border:1px solid var(--line);border-radius:12px;font-size:16px">
+        ${state.v010 && isOwner ? '<select name="role" class="role-sel" aria-label="초대 역할"><option value="EDITOR">✏️ 편집자</option><option value="VIEWER">👀 보기 전용</option></select>' : ''}
+        <button type="submit">초대</button></div>
+      ${state.v010 && !isOwner ? '<small class="hint">편집자가 초대하면 보기 전용으로 들어와요.</small>' : ''}
+    </form>` : ''}
     <div class="divider"></div>
     <div class="btn-row">${isOwner
       ? '<button class="btn danger" data-act="delete">여행 삭제</button>'
       : '<button class="btn danger" data-act="leave">이 여행에서 나가기</button>'}</div>`);
 
-  $('#inviteForm', body).onsubmit = async (e) => {
+  if ($('#inviteForm', body)) $('#inviteForm', body).onsubmit = async (e) => {
     e.preventDefault();
     try {
-      const u = await db.addMemberByUsername(id, e.target.username.value.trim());
+      const u = await db.addMemberByUsername(id, e.target.username.value.trim(), e.target.role?.value);
       toast(`${u.name}님을 초대했어요`);
       await refresh();
       openTrip(id);
     } catch (err) { toast(err.message); }
+  };
+  body.onchange = async (e) => {
+    const sel = e.target.closest('[data-role-of]');
+    if (!sel) return;
+    const m = t.members.find((x) => x.id === sel.dataset.roleOf);
+    try {
+      await db.setMemberRole(id, sel.dataset.roleOf, sel.value);
+      toast(`${m?.name || '멤버'}님을 ${ROLES[sel.value][1]}(으)로 바꿨어요`);
+      await refresh();
+      openTrip(id);
+    } catch (err) { toast(err.message); sel.value = m?.role || 'EDITOR'; }
   };
   body.onclick = async (e) => {
     const kick = e.target.closest('[data-kick]');
     const act = e.target.closest('[data-act]')?.dataset.act;
     try {
       if (act === 'invite') {
-        await openInviteLink(t);
+        await openInviteLink(t, false, e.target.closest('[data-act]').dataset.role);
       } else if (kick) {
         if (!confirm('이 사람을 여행에서 내보낼까요? 그 사람이 쓴 기록은 남아요. 초대 링크로 다시 들어오지 못하게 하려면 링크도 새로 만들어 주세요.')) return;
         await db.removeMember(id, kick.dataset.kick);

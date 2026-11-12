@@ -65,7 +65,11 @@ ollback-008-plan-status.sql`
 SQL Editor에서 `supabase\migrate-009-journal-scrapbooks.sql` 을 한 번 실행해요. (결과: **✔ 기록장·스크랩북 고도화 설정 완료**)
 기록에 제목·기분·태그·즐겨찾기를 더하고 위치 없이도 기록할 수 있게 해요. 여행마다 스크랩북을 여러 권 만들 수 있고, 지금 있는 페이지는 여행마다 '기본 스크랩북'으로 옮겨져요. 새 템플릿(필름·티켓·미니멀)도 저장돼요. 실행 전에도 앱은 동작하고, 새 칸·기능만 숨겨져요. 되돌리기: `supabase\rollback-009-journal-scrapbooks.sql`
 
-> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` → `migrate-006-scrapbook-design.sql` → `migrate-007-trip-info.sql` → `migrate-008-plan-status.sql` → `migrate-009-journal-scrapbooks.sql` 순서로 실행하면 돼요.
+## 8-7. 공동 여행 역할 (2026-11 추가)
+SQL Editor에서 `supabase\migrate-010-roles.sql` 을 한 번 실행해요. (결과: **✔ 공동 여행 역할 설정 완료**)
+멤버마다 역할(만든 사람 · 편집자 · 보기 전용)을 정해요. **지금 멤버는 모두 편집자**로 시작해서 지금처럼 함께 고칠 수 있어요. 새 초대 링크는 기본이 보기 전용이고, 편집자 링크는 만든 사람만 만들 수 있어요. 이미 보낸 링크는 편집자로 들어와요. 되돌리기: `supabase\rollback-010-roles.sql`
+
+> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` → `migrate-006-scrapbook-design.sql` → `migrate-007-trip-info.sql` → `migrate-008-plan-status.sql` → `migrate-009-journal-scrapbooks.sql` → `migrate-010-roles.sql` 순서로 실행하면 돼요.
 
 ## 9. 카카오 장소 검색 연결 (한국 장소 이름 정확하게)
 1. https://developers.kakao.com → 카카오 계정으로 로그인 (처음이면 개발자 등록 약관 동의)
