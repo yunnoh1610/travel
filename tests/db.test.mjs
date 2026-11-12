@@ -53,6 +53,8 @@ before(async () => {
   await db.exec(sql('migrate-004-planner-scrapbook.sql'));
   await db.exec(sql('migrate-005-record-time-plan-link.sql'));
   await db.exec(sql('migrate-005-record-time-plan-link.sql'));
+  await db.exec(sql('migrate-006-scrapbook-design.sql'));
+  await db.exec(sql('migrate-006-scrapbook-design.sql'));
 
   for (const [id, name] of [[A, 'aa'], [B, 'bb'], [C, 'cc']]) {
     await db.query("insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, jsonb_build_object('name', $3::text))",
@@ -253,6 +255,16 @@ test('005: 장소 기록 시각·일정 연결 (같은 기록장만, 계획 시�
   assert.equal(after.name, '궁남지');
 });
 
+test('006: 새 템플릿·배경은 저장되고 모르는 값은 거부', async () => {
+  const p = await rows(B, "insert into scrapbook_pages (trip_id, title, template, background) values ($1, '일기', 'DIARY', 'lined') returning template, background", [trip]);
+  assert.deepEqual([p[0].template, p[0].background], ['DIARY', 'lined']);
+  for (const bg of ['white', 'cream', 'sky', 'peach', 'night', 'dots', 'stripe', 'check', 'linen', 'paper']) {
+    assert.equal((await rows(B, 'insert into scrapbook_pages (trip_id, template, background) values ($1, $2, $3) returning id', [trip, 'COLLAGE', bg])).length, 1, bg);
+  }
+  await fails(B, "insert into scrapbook_pages (trip_id, background) values ($1, 'neon')", [trip], /check constraint/);
+  await fails(B, "insert into scrapbook_pages (trip_id, template) values ($1, 'MAGAZINE')", [trip], /check constraint/);
+});
+
 test('멤버가 나가면 새 자료도 못 봄 (TC-15)', async () => {
   assert.ok((await rows(B, 'select id from itinerary_items where trip_id = $1', [trip])).length > 0);
   await rows(B, 'delete from trip_members where trip_id = $1 and user_id = $2', [trip, B]);
@@ -273,7 +285,8 @@ test('되돌리기 SQL 이 기존 테이블을 남기고 새 테이블만 지움
   const x = new PGlite();
   await x.exec(SUPABASE_STUB);
   for (const f of ['schema.sql', 'migrate-002-username.sql', 'migrate-003-memories.sql', 'migrate-004-planner-scrapbook.sql',
-    'migrate-005-record-time-plan-link.sql', 'rollback-005-record-time-plan-link.sql', 'rollback-004-planner-scrapbook.sql']) {
+    'migrate-005-record-time-plan-link.sql', 'migrate-006-scrapbook-design.sql', 'rollback-006-scrapbook-design.sql',
+    'rollback-005-record-time-plan-link.sql', 'rollback-004-planner-scrapbook.sql']) {
     await x.exec(sql(f));
   }
   const t = (await x.query("select table_name from information_schema.tables where table_schema = 'public' order by 1")).rows.map((r) => r.table_name);

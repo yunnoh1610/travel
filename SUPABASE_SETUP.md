@@ -48,7 +48,11 @@ AI 기능(Edge Function)과 OpenAI 키 설정은 [AI_PLANNER.md](AI_PLANNER.md) 
 SQL Editor에서 `supabase\migrate-005-record-time-plan-link.sql` 을 한 번 실행해요. (결과: **✔ 기록 시간·일정 연결 설정 완료**)
 실행 전에도 앱은 동작해요. 실행하면 기록에 사진 촬영 시간이 남고, 기록을 여행 계획 일정에 연결할 수 있어요.
 
-> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` 순서로 실행하면 돼요.
+## 8-3. 스크랩북 디자인 확장 (2026-11 추가)
+SQL Editor에서 `supabase\migrate-006-scrapbook-design.sql` 을 한 번 실행해요. (결과: **✔ 스크랩북 디자인 확장 설정 완료**)
+새 배경(단색·패턴·린넨)과 새 템플릿(여행 일기·사진 콜라주)을 저장할 수 있게 허용 목록만 늘려요. 기존 페이지는 그대로예요.
+
+> 처음부터 새로 설치할 때는 `schema.sql` → `migrate-002-username.sql` → `migrate-003-memories.sql` → `migrate-004-planner-scrapbook.sql` → `migrate-005-record-time-plan-link.sql` → `migrate-006-scrapbook-design.sql` 순서로 실행하면 돼요.
 
 ## 9. 카카오 장소 검색 연결 (한국 장소 이름 정확하게)
 1. https://developers.kakao.com → 카카오 계정으로 로그인 (처음이면 개발자 등록 약관 동의)

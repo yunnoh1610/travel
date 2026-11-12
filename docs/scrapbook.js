@@ -11,12 +11,30 @@
   const TEMPLATES = {
     BLANK: ['📄', '빈 페이지', '자유롭게 꾸며요'],
     DAY: ['📅', '하루 기록', '날짜 제목 + 그날 사진 3장'],
+    DIARY: ['📔', '여행 일기', '날짜 도장 + 사진 2장 + 줄노트에 일기'],
     POLAROID: ['🖼️', '폴라로이드', '그날 사진을 폴라로이드로'],
+    COLLAGE: ['🧩', '사진 콜라주', '사진 5장을 꽉 차게'],
     GRID: ['🔲', '사진 4칸', '사진 4장을 바둑판으로'],
   };
-  const BGS = { paper: '종이', grid: '모눈', kraft: '크라프트', mint: '민트', lilac: '라일락' };
-  const STICKERS = ['✈️', '🚆', '🚌', '🗺️', '📍', '🧳', '🏯', '⛩️', '🌸', '🍁', '🌿', '🌊', '☀️', '🌙', '⭐', '💜',
-    '💛', '📷', '🎫', '🍜', '☕', '🍰', '🍺', '🎉', '😆', '🥰', '👍', '✉️', '🎈', '❤️'];
+  const TEMPLATE_BG = { DIARY: 'lined', COLLAGE: 'white' }; // 템플릿에 어울리는 기본 배경
+  // 배경: 질감 · 패턴 · 단색 (DB 설정 006 이 있어야 새 배경·템플릿을 저장할 수 있어요)
+  const BG_GROUPS = [
+    ['질감', { paper: '종이', kraft: '크라프트', linen: '린넨' }],
+    ['패턴', { grid: '모눈', lined: '줄노트', dots: '도트', stripe: '줄무늬', check: '체크' }],
+    ['단색', { white: '흰색', cream: '크림', mint: '민트', lilac: '라일락', sky: '하늘', peach: '복숭아', night: '밤' }],
+  ];
+  const BGS = Object.assign({}, ...BG_GROUPS.map(([, g]) => g));
+  const STICKER_SETS = [
+    ['여행', ['✈️', '🧳', '🗺️', '🧭', '📍', '🎫', '🚆', '🚌', '🚗', '⛴️', '🏨', '📷', '🏖️', '⛰️', '🏯', '⛩️', '🗼', '🎡']],
+    ['음식', ['🍜', '🍣', '🍙', '🍔', '🍕', '🥟', '🍤', '🍰', '🍦', '🍩', '☕', '🧋', '🍺', '🍷']],
+    ['날씨·자연', ['☀️', '⛅', '🌧️', '❄️', '🌈', '🌙', '⭐', '🌸', '🌷', '🍁', '🌿', '🌊', '🌻', '🍀']],
+    ['기분', ['😆', '🥰', '😋', '😴', '🥳', '😎', '🤩', '😭', '👍', '✌️', '❤️', '💜', '💛', '✨', '🎉', '🎈']],
+  ];
+  // 글자 배경색
+  const TEXT_BGS = { none: ['없음', ''], white: ['흰색', '#ffffff'], cream: ['크림', '#fbf6ea'], lilac: ['라벤더', '#e6e0f5'],
+    mint: ['민트', '#d9f0e6'], pink: ['분홍', '#fbe0e6'], yellow: ['노랑', '#fff3b0'], dark: ['검정', '#2d2a26'] };
+  const textPad = (size) => ({ x: size * 0.3, y: size * 0.15, r: size * 0.3 });
+  const DECO_SHAPES = ['stamp', 'ticket', 'label'];
   const TAPES = ['#f7c8d0', '#c9e4f6', '#fff1a1', '#cdeccf', '#e2cbff'];
   const COLORS = ['#2d2a26', '#6E5FAE', '#c2410c', '#1f5378', '#0f766e', '#ffffff'];
   const MAX_HISTORY = 40;
@@ -89,15 +107,46 @@
         ${c.frame === 'polaroid' && c.caption ? `<div class="sb-caption">${esc(c.caption)}</div>` : ''}</div>`;
     }
     if (e.type === 'TEXT') {
-      return `<div class="sb-text font-${esc(c.font || 'hand')}" style="font-size:${Number(c.size) || 56}px;color:${esc(c.color || '#2d2a26')};text-align:${esc(c.align || 'left')}">${esc(c.text || '')}</div>`;
+      const size = Number(c.size) || 56;
+      const bg = TEXT_BGS[c.bg]?.[1];
+      const pad = textPad(size);
+      const bgStyle = bg ? `background:${bg};padding:${pad.y}px ${pad.x}px;border-radius:${pad.r}px;` : '';
+      return `<div class="sb-text font-${esc(c.font || 'hand')}" style="${bgStyle}font-size:${size}px;color:${esc(c.color || '#2d2a26')};text-align:${esc(c.align || 'left')}">${esc(c.text || '')}</div>`;
     }
     if (c.shape === 'tape') return `<div class="sb-tape" style="background:${esc(c.color || TAPES[0])}"></div>`;
+    // 날짜 도장·티켓·장소 라벨은 이미지 내보내기와 같은 그림 함수로 그려요 (hydrate)
+    if (DECO_SHAPES.includes(c.shape)) return `<canvas class="sb-deco" data-el="${esc(e.id)}" role="img" aria-label="${esc(c.text || '장식')}"></canvas>`;
     return `<div class="sb-sticker" style="font-size:${Math.round(Math.min(e.width, e.height) * 0.86)}px" role="img" aria-label="스티커">${esc(c.sticker || '⭐')}</div>`;
   }
   const elStyle = (e) => `left:${e.x}px;top:${e.y}px;width:${e.width}px;height:${e.height}px;transform:rotate(${e.rotation}deg);z-index:${e.zIndex}`;
   function canvasHtml(page, els, photos, small) {
     return `<div class="sb-canvas bg-${esc(page.background || 'paper')}">${[...els].sort((a, b) => a.zIndex - b.zIndex)
       .map((e) => `<div class="sb-el type-${e.type.toLowerCase()}" style="${elStyle(e)}">${elInner(e, photos, small)}</div>`).join('')}</div>`;
+  }
+  /** 화면에 넣은 뒤: 못 불러온 사진은 안내로 바꾸고, 장식(도장·티켓·라벨)을 그림 */
+  function hydrate(container, els) {
+    if (!container) return;
+    const byId = new Map(els.map((e) => [e.id, e]));
+    container.querySelectorAll('.sb-photo img').forEach((img) => {
+      const fail = () => {
+        const d = document.createElement('div');
+        d.className = 'sb-missing';
+        d.textContent = '사진을 불러오지 못했어요';
+        img.replaceWith(d);
+      };
+      if (img.complete && img.src && img.naturalWidth === 0) fail(); else img.addEventListener('error', fail, { once: true });
+    });
+    container.querySelectorAll('canvas.sb-deco').forEach((cv) => { const e = byId.get(cv.dataset.el); if (e) paintDeco(cv, e); });
+  }
+  function paintDeco(cv, e) {
+    ensureFonts();
+    const k = 2;
+    cv.width = Math.max(1, Math.round(e.width * k));
+    cv.height = Math.max(1, Math.round(e.height * k));
+    const ctx = cv.getContext('2d');
+    ctx.scale(k, k);
+    ctx.translate(e.width / 2, e.height / 2);
+    drawStickerEl(ctx, e, e.width, e.height);
   }
 
   // ---------- 페이지 목록 ----------
@@ -119,16 +168,15 @@
     const photos = photoIndex();
     r.innerHTML = head + (S.pages.length ? `<div class="sb-pages">${S.pages.map((p, i) => `
       <div class="sb-page-card" data-page="${p.id}">
-        <button class="sb-thumb" data-open aria-label="${esc(p.title || `${i + 1}쪽`)} 편집하기">${canvasHtml(p, S.els.get(p.id) || [], photos, true)}</button>
+        <button class="sb-thumb" data-view aria-label="${esc(p.title || `${i + 1}쪽`)} 보기">${canvasHtml(p, S.els.get(p.id) || [], photos, true)}</button>
         <div class="sb-page-meta"><b>${esc(p.title || `${i + 1}쪽`)}</b><small class="muted">${p.page_date ? shared().short(p.page_date) : ''} · ${(S.els.get(p.id) || []).length}개 요소</small></div>
         <div class="sb-page-tools">
-          <button class="icon-btn" data-pmove="-1" ${i === 0 ? 'disabled' : ''} aria-label="앞으로">◀</button>
-          <button class="icon-btn" data-pmove="1" ${i === S.pages.length - 1 ? 'disabled' : ''} aria-label="뒤로">▶</button>
-          <button class="icon-btn" data-pexp aria-label="이미지로 저장·공유">📤</button>
-          <button class="icon-btn" data-pdel aria-label="페이지 삭제">🗑</button>
+          <button class="btn-sub sb-edit-btn" data-open>✏️ 편집</button>
+          <button class="icon-btn" data-pmenu aria-label="페이지 메뉴" aria-haspopup="dialog">⋯</button>
         </div>
       </div>`).join('')}</div>`
       : `<div class="empty"><div class="big">📔</div>아직 스크랩북 페이지가 없어요<br><small>여행 사진으로 하루 한 장씩 꾸며 보세요</small></div>`);
+    hydrate(r, [...S.els.values()].flat());
     fitThumbs();
   }
   // 미리보기 크기에 맞춰 1000×1400 캔버스를 줄임
@@ -151,12 +199,53 @@
       const card = e.target.closest('[data-page]');
       if (!card) return;
       const page = S.pages.find((p) => p.id === Number(card.dataset.page));
-      if (e.target.closest('[data-open]')) return openEditor(page);
-      if (e.target.closest('[data-pdel]')) return deletePage(page);
-      if (e.target.closest('[data-pexp]')) return exportPage(page, S.els.get(page.id) || [], page.background);
-      const mv = e.target.closest('[data-pmove]');
-      if (mv) return movePage(page, Number(mv.dataset.pmove));
+      if (e.target.closest('[data-open]')) return openEditor(page); // 편집 모드
+      if (e.target.closest('[data-view]')) return openStory(S.pages.indexOf(page)); // 감상 모드
+      if (e.target.closest('[data-pmenu]')) return pageMenu(page);
     });
+  }
+
+  // 페이지 ⋯ 메뉴: 복제 · 이미지 · 순서 · 삭제
+  function pageMenu(page) {
+    const i = S.pages.indexOf(page);
+    const body = openSheet(`<h2>${esc(page.title || `${i + 1}쪽`)}</h2>
+      <div class="choice-list">
+        <button class="choice" data-pm="dup"><span class="ic">⧉</span><span><b>페이지 복제</b><small>바로 뒤에 똑같은 페이지를 만들어요</small></span></button>
+        <button class="choice" data-pm="exp"><span class="ic">📤</span><span><b>이미지로 저장·공유</b><small>페이지(5:7) 또는 인스타 스토리(9:16)</small></span></button>
+        <div class="btn-row" style="margin:0">
+          <button class="btn" data-pm="up" ${i === 0 ? 'disabled' : ''} style="flex:1">◀ 앞으로</button>
+          <button class="btn" data-pm="down" ${i === S.pages.length - 1 ? 'disabled' : ''} style="flex:1">뒤로 ▶</button>
+        </div>
+        <button class="choice" data-pm="del"><span class="ic">🗑</span><span><b style="color:var(--danger)">페이지 삭제</b><small>원래 사진 기록은 그대로예요</small></span></button>
+      </div>`);
+    body.onclick = (ev) => {
+      const a = ev.target.closest('[data-pm]:not([disabled])')?.dataset.pm;
+      if (!a) return;
+      if (a !== 'exp') closeSheet();
+      if (a === 'dup') duplicatePage(page);
+      else if (a === 'exp') exportPage(page, S.els.get(page.id) || [], page.background);
+      else if (a === 'up') movePage(page, -1);
+      else if (a === 'down') movePage(page, 1);
+      else if (a === 'del') deletePage(page);
+    };
+  }
+
+  async function duplicatePage(page) {
+    const { pq } = shared();
+    try {
+      const order = S.pages.reduce((m, p) => Math.max(m, p.page_order), 0) + 1;
+      const [np] = await pq(sb.from('scrapbook_pages').insert({
+        trip_id: S.tripId, title: `${page.title || ''} 복사`.trim().slice(0, 40), page_date: page.page_date,
+        template: page.template, background: page.background, page_order: order,
+      }).select());
+      const els = (S.els.get(page.id) || []).map((e) => ({ ...toRow(e), id: uuid() }));
+      if (els.length) await pq(sb.rpc('save_scrapbook_page', { p_page_id: np.id, p_expected_revision: np.revision, p_elements: els }));
+      const ids = S.pages.map((x) => x.id);
+      ids.splice(ids.indexOf(page.id) + 1, 0, np.id);
+      await pq(sb.rpc('reorder_scrapbook_pages', { p_trip_id: S.tripId, p_ids: ids }));
+      await load(true);
+      toast('페이지를 복제했어요');
+    } catch (err) { toast(err.message === 'NEEDS_MIGRATION' ? 'DB 설정이 먼저 필요해요' : err.message); }
   }
 
   async function movePage(page, dir) {
@@ -195,12 +284,17 @@
           <input type="radio" name="template" value="${k}" ${i === 1 ? 'checked' : ''}><span class="ic">${ic2}</span><span><b>${name}</b><small>${desc}</small></span></label>`).join('')}</div>
         <div class="grid2" style="margin-top:12px">
           <label class="field"><span>날짜</span><select name="date"><option value="">없음</option>${days.map((d, i) => `<option value="${d}" ${i === 0 ? 'selected' : ''}>${i + 1}일차 ${shared().short(d)}</option>`).join('')}</select></label>
-          <label class="field"><span>배경</span><select name="bg">${Object.entries(BGS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+          <label class="field"><span>배경</span><select name="bg">${BG_GROUPS.map(([g, list]) => `<optgroup label="${g}">${Object.entries(list).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</optgroup>`).join('')}</select></label>
         </div>
         <label class="field"><span>제목 (선택)</span><input name="title" maxlength="40" placeholder="비우면 날짜로 정해요"></label>
         <button class="primary" type="submit">만들기</button>
       </form>`);
     const f = $('#npForm', body);
+    let bgTouched = false;
+    f.bg.addEventListener('change', () => { bgTouched = true; });
+    f.addEventListener('change', (e) => { // 템플릿에 어울리는 배경으로 (직접 고른 배경은 그대로)
+      if (e.target.name === 'template' && !bgTouched) f.bg.value = TEMPLATE_BG[e.target.value] || 'paper';
+    });
     f.onsubmit = async (e) => {
       e.preventDefault();
       const btn = $('button[type=submit]', f);
@@ -223,7 +317,10 @@
         closeSheet();
         await load(true);
         openEditor(S.pages.find((p) => p.id === page.id) || page);
-      } catch (err) { toast(err.message); btn.disabled = false; }
+      } catch (err) {
+        toast(/check constraint|입력한 내용/.test(err.message) ? '새 배경·템플릿을 쓰려면 DB 설정(migrate-006)이 먼저 필요해요' : err.message);
+        btn.disabled = false;
+      }
     };
   }
 
@@ -236,6 +333,20 @@
       await Promise.race([img.decode(), sleep(3000).then(() => { throw new Error('timeout'); })]);
       return img.naturalHeight / img.naturalWidth || 0.75;
     } catch { return 0.75; }
+  }
+
+  // ---------- 날짜·장소 스티커 (기록의 날짜·장소 이름을 글자로 복사해 두므로, 나중에 기록을 고쳐도 그대로예요) ----------
+  function dateStamp(date, x, y, d = 200) {
+    const [yy, mm, dd] = date.split('-');
+    return { type: 'STICKER', x, y, width: d, height: d, content: { shape: 'stamp', text: `${mm}.${dd}`, sub: yy, color: '#c2410c' } };
+  }
+  function placeLabel(name, x, y, h = 70) {
+    const text = `📍 ${String(name || '').slice(0, 20)}`;
+    const w = Math.round(Math.min(700, Math.max(160, h * 0.62 * [...text].length + h)));
+    return { type: 'STICKER', x: clamp(x, 0, CW - w), y, width: w, height: h, content: { shape: 'label', text, color: '#6E5FAE' } };
+  }
+  function tripTicket(t, x, y) {
+    return { type: 'STICKER', x, y, width: 440, height: 170, content: { shape: 'ticket', text: t?.title || '여행', sub: fmtRange(t?.start_date, t?.end_date), color: '#fde2c8' } };
   }
 
   async function templateElements(tpl, date, title) {
@@ -266,6 +377,22 @@
       for (let i = 0; i < ps.length; i++) await image(ps[i], ...slots[i], 'polaroid', 520);
       text(title, 560, 140, 380, 120, 64);
       out.push({ id: uuid(), type: 'STICKER', x: 760, y: 1180, width: 140, height: 140, rotation: -8, zIndex: z++, content: { sticker: '📷' } });
+    } else if (tpl === 'DIARY') {
+      text(title, 100, 40, 620, 100, 72);
+      if (date) out.push({ id: uuid(), type: 'STICKER', ...dateStamp(date, 770, 30), rotation: -12, zIndex: z++ });
+      const ps = pick.slice(0, 2);
+      const slots = [[100, 190, 470, -3], [560, 330, 360, 4]];
+      for (let i = 0; i < ps.length; i++) await image(ps[i], ...slots[i], 'tape', 380);
+      [...new Set(ps.map((x) => x.placeName))].slice(0, 2).forEach((nm, i) => {
+        out.push({ id: uuid(), type: 'STICKER', ...placeLabel(nm, 100 + i * 330, 620), rotation: i ? 3 : -2, zIndex: z++ });
+      });
+      text('오늘의 이야기를 적어 보세요 ✏️', 100, 724, 820, 600, 43, { color: '#3a352f' });
+    } else if (tpl === 'COLLAGE') {
+      const ps = pick.slice(0, 5);
+      const cells = [[30, 30, 940, 560], [30, 610, 460, 400], [510, 610, 460, 400], [30, 1030, 460, 340], [510, 1030, 460, 340]];
+      ps.forEach((ph, i) => out.push({ id: uuid(), type: 'IMAGE', x: cells[i][0], y: cells[i][1], width: cells[i][2], height: cells[i][3], rotation: 0, zIndex: z++, photoId: ph.id, content: { frame: 'none', alt: ph.placeName } }));
+      out.push({ id: uuid(), type: 'STICKER', ...placeLabel(title, 50, 500), rotation: -2, zIndex: z++ });
+      if (date) out.push({ id: uuid(), type: 'STICKER', ...dateStamp(date, 780, 420, 170), rotation: 10, zIndex: z++ });
     } else if (tpl === 'GRID') {
       text(title, 60, 40, 880, 100, 72);
       const ps = pick.slice(0, 4);
@@ -288,6 +415,9 @@
   // =====================================================================
   const EXPORT_SCALE = 2;
   let FONTS = {};
+  function ensureFonts() {
+    if (!FONTS.basic) FONTS = { hand: cssText('sb-text font-hand'), basic: cssText('sb-text font-basic'), caption: cssText('sb-caption') };
+  }
   const HAND_FONT = '"Gaegu", "Gowun Dodum", cursive';
   const BASIC_FONT = '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
   // 편집 화면과 같은 글꼴·자간을 쓰려고 실제 CSS 값을 읽어 옴 (테마마다 다를 수 있음)
@@ -315,10 +445,35 @@
     try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch { return createImageBitmap(blob); }
   }
 
+  const BG_FILL = {
+    paper: '#f6efe1', grid: '#fbfaf4', kraft: '#d7b98e', mint: '#e3f5ef', lilac: '#efe6fb', linen: '#f3eee4',
+    white: '#ffffff', cream: '#fbf6ea', sky: '#e4f1fb', peach: '#fde8de', night: '#2b2840',
+    lined: '#fffdf6', dots: '#fff7f2', stripe: '#ffffff', check: '#ffffff',
+  };
   function drawBackground(ctx, bg, W = CW, H = CH) {
-    const fill = { paper: '#f6efe1', grid: '#fbfaf4', kraft: '#d7b98e', mint: '#e3f5ef', lilac: '#efe6fb' }[bg] || '#f6efe1';
-    ctx.fillStyle = fill;
+    ctx.fillStyle = BG_FILL[bg] || BG_FILL.paper;
     ctx.fillRect(0, 0, W, H);
+    // planner.css 의 .sb-canvas.bg-○○ 와 같은 무늬
+    if (bg === 'lined') {
+      ctx.fillStyle = '#dbe6f0';
+      for (let y = 54; y < H; y += 56) ctx.fillRect(0, y, W, 2);
+      ctx.fillStyle = 'rgba(220, 80, 80, .35)';
+      ctx.fillRect(89, 0, 2, H);
+    } else if (bg === 'dots') {
+      ctx.fillStyle = 'rgba(110, 95, 174, .18)';
+      for (let y = 20; y < H; y += 40) for (let x = 20; x < W; x += 40) { ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill(); }
+    } else if (bg === 'stripe') {
+      ctx.fillStyle = '#f3f0fb';
+      for (let x = 0; x < W; x += 80) ctx.fillRect(x, 0, 40, H);
+    } else if (bg === 'check') {
+      ctx.fillStyle = 'rgba(240, 170, 180, .28)';
+      for (let x = 0; x < W; x += 60) ctx.fillRect(x, 0, 30, H);
+      for (let y = 0; y < H; y += 60) ctx.fillRect(0, y, W, 30);
+    } else if (bg === 'linen') {
+      ctx.fillStyle = 'rgba(120, 100, 70, .06)';
+      for (let y = 0; y < H; y += 4) ctx.fillRect(0, y, W, 1);
+      for (let x = 0; x < W; x += 4) ctx.fillRect(x, 0, 1, H);
+    }
     if (bg === 'paper' || bg === 'kraft') {
       const [step, r, color] = bg === 'paper' ? [22, 1.3, 'rgba(120, 90, 40, .07)'] : [18, 1.75, 'rgba(90, 60, 20, .12)'];
       ctx.fillStyle = color;
@@ -432,18 +587,85 @@
     const c = e.content || {};
     const size = Number(c.size) || 56;
     const hand = (c.font || 'hand') !== 'basic';
+    const bg = TEXT_BGS[c.bg]?.[1];
+    const pad = bg ? textPad(size) : { x: 0, y: 0, r: 0 };
+    if (bg) { ctx.fillStyle = bg; roundRect(ctx, -w / 2, -h / 2, w, h, pad.r); ctx.fill(); }
     applyFont(ctx, hand ? FONTS.hand : FONTS.basic, size, hand ? HAND_FONT : BASIC_FONT);
     ctx.fillStyle = c.color || '#2d2a26';
     ctx.textBaseline = 'middle';
     const align = c.align || 'left';
     ctx.textAlign = align;
-    const ax = align === 'center' ? 0 : align === 'right' ? w / 2 : -w / 2;
+    const ax = align === 'center' ? 0 : align === 'right' ? w / 2 - pad.x : -w / 2 + pad.x;
     const lh = size * 1.3;
-    wrapText(ctx, c.text, w).forEach((ln, i) => ctx.fillText(ln, ax, -h / 2 + lh * i + lh / 2));
+    wrapText(ctx, c.text, w - pad.x * 2).forEach((ln, i) => ctx.fillText(ln, ax, -h / 2 + pad.y + lh * i + lh / 2));
+  }
+
+  // 장식 글자 (굵은 고딕, 칸에 맞게 줄임)
+  function decoText(ctx, text, x, y, size, maxW, weight = 800) {
+    let s = size;
+    const fam = FONTS.basic?.family || BASIC_FONT;
+    ctx.font = `${weight} ${s}px ${fam}`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    while (s > 8 && ctx.measureText(text).width > maxW) { s -= 1; ctx.font = `${weight} ${s}px ${fam}`; }
+    ctx.fillText(text, x, y);
+  }
+  function drawDeco(ctx, c, w, h) {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (c.shape === 'stamp') { // 날짜 도장
+      const d = Math.min(w, h);
+      const col = c.color || '#c2410c';
+      ctx.save();
+      ctx.globalAlpha = 0.88;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = d * 0.02;
+      ctx.beginPath(); ctx.arc(0, 0, d / 2 - d * 0.02, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = d * 0.01;
+      ctx.setLineDash([d * 0.03, d * 0.02]);
+      ctx.beginPath(); ctx.arc(0, 0, d / 2 - d * 0.08, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = col;
+      if (c.sub) decoText(ctx, c.sub, 0, -d * 0.17, d * 0.11, d * 0.6, 700);
+      decoText(ctx, c.text || '', 0, d * 0.03, d * 0.2, d * 0.72);
+      decoText(ctx, '★  ★  ★', 0, d * 0.22, d * 0.07, d * 0.5, 700);
+      ctx.restore();
+    } else if (c.shape === 'ticket') { // 여행 티켓
+      const r = h * 0.16;
+      const x0 = -w / 2;
+      const y0 = -h / 2;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0); ctx.lineTo(x0 + w, y0); ctx.lineTo(x0 + w, -r);
+      ctx.arc(x0 + w, 0, r, -Math.PI / 2, Math.PI / 2, true);
+      ctx.lineTo(x0 + w, y0 + h); ctx.lineTo(x0, y0 + h); ctx.lineTo(x0, r);
+      ctx.arc(x0, 0, r, Math.PI / 2, -Math.PI / 2, true);
+      ctx.closePath();
+      ctx.fillStyle = c.color || '#fde2c8';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(45, 42, 38, .12)'; ctx.lineWidth = 2; ctx.stroke();
+      const sx = x0 + w * 0.74;
+      ctx.save(); ctx.strokeStyle = 'rgba(45, 42, 38, .35)'; ctx.lineWidth = 2; ctx.setLineDash([8, 7]);
+      ctx.beginPath(); ctx.moveTo(sx, y0 + h * 0.14); ctx.lineTo(sx, y0 + h * 0.86); ctx.stroke(); ctx.restore();
+      ctx.fillStyle = '#2d2a26';
+      decoText(ctx, c.text || '', x0 + w * 0.37, -h * 0.1, h * 0.26, w * 0.62);
+      ctx.globalAlpha = 0.7;
+      if (c.sub) decoText(ctx, c.sub, x0 + w * 0.37, h * 0.22, h * 0.14, w * 0.62, 600);
+      ctx.globalAlpha = 1;
+      ctx.font = `${Math.round(h * 0.34)}px ${EMOJI_FONT}`;
+      ctx.fillStyle = '#000';
+      ctx.fillText('✈️', x0 + w * 0.87, h * 0.02);
+    } else if (c.shape === 'label') { // 장소 라벨
+      const col = c.color || '#6E5FAE';
+      roundRect(ctx, -w / 2 + h * 0.04, -h / 2 + h * 0.04, w - h * 0.08, h - h * 0.08, h / 2);
+      ctx.fillStyle = '#ffffff'; ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = h * 0.06; ctx.stroke();
+      ctx.fillStyle = col;
+      decoText(ctx, c.text || '', 0, h * 0.02, h * 0.42, w - h * 0.7);
+    }
   }
 
   function drawStickerEl(ctx, e, w, h) {
     const c = e.content || {};
+    if (DECO_SHAPES.includes(c.shape)) { drawDeco(ctx, c, w, h); return; }
     if (c.shape === 'tape') {
       ctx.globalAlpha = 0.85;
       ctx.fillStyle = c.color || TAPES[0];
@@ -455,6 +677,8 @@
     }
     const fs = Math.round(Math.min(w, h) * 0.86);
     ctx.font = `${fs}px ${EMOJI_FONT}`;
+    ctx.fillStyle = '#000'; // 앞 요소의 글자색(예: 흰색)이 이모지 색에 섞이지 않게
+    ctx.globalAlpha = 1;
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -645,6 +869,7 @@
       <div class="st-bars" aria-hidden="true">${S.pages.map(() => '<i><b></b></i>').join('')}</div>
       <div class="st-head">
         <div class="st-title"><b></b><small aria-live="polite"></small></div>
+        <button type="button" class="st-btn" data-st="edit" aria-label="이 페이지 편집">✏️</button>
         <button type="button" class="st-btn" data-st="pause" aria-label="멈춤">❚❚</button>
         <button type="button" class="st-btn" data-st="share" aria-label="이 페이지를 스토리 이미지로 공유">📤</button>
         <button type="button" class="st-btn" data-st="close" aria-label="닫기">✕</button>
@@ -671,6 +896,7 @@
     $('.st-title b', box).textContent = trip()?.title || '';
     $('.st-title small', box).textContent = `${pageSubtitle(p) || `${i + 1}쪽`} · ${i + 1}/${S.pages.length}`;
     $('.st-wrap', box).innerHTML = canvasHtml(p, els, photoIndex(), false).replace(/ loading="lazy"/g, '');
+    hydrate($('.st-wrap', box), els);
     fitStory();
     box.querySelectorAll('.st-bars b').forEach((b, k) => { b.style.width = k < i ? '100%' : '0%'; });
     // 다음 페이지 사진을 미리 받아 두기
@@ -764,6 +990,7 @@
       if (!ST) return;
       const a = ev.target.closest('[data-st]')?.dataset.st;
       if (a === 'close') closeStory();
+      else if (a === 'edit') { const p = S.pages[ST.i]; closeStory(); openEditor(p); } // 감상 → 편집
       else if (a === 'share') storyShare();
       else if (a === 'pause') setPaused(!ST.paused);
       // 넘기기 영역은 키보드(Enter)로 누를 때만 (손가락·마우스 탭은 위 pointerup 에서 처리)
@@ -785,7 +1012,10 @@
 
   function openEditor(page) {
     const els = (S.els.get(page.id) || []).map((e) => structuredClone(e));
-    ED = { page, els, sel: null, hist: [], dirty: false, saving: false, scale: 1, uploaded: new Set(), title: page.title, bg: page.background };
+    ED = {
+      page, els, sel: null, hist: [], future: [], dirty: false, saving: false, scale: 1, uploaded: new Set(), title: page.title, bg: page.background,
+      ver: 0, saveTimer: 0, lastSaved: null, saveError: false, offline: false, conflict: false, conflictMsg: '',
+    };
     // 저장 못 한 편집이 이 기기에 남아 있으면 복구 제안
     try {
       const local = JSON.parse(localStorage.getItem(`sbDraft:${page.id}`) || 'null');
@@ -795,17 +1025,21 @@
         ED.title = local.title ?? ED.title;
         ED.bg = local.bg ?? ED.bg;
         ED.dirty = true;
+        ED.ver = 1;
       } else if (local) localStorage.removeItem(`sbDraft:${page.id}`);
     } catch { /* 무시 */ }
     const box = $('#sbEditor');
     box.innerHTML = `
       <div class="sb-top">
-        <button class="icon-btn" data-ed="close" aria-label="닫기">←</button>
-        <input class="sb-title" maxlength="40" value="${esc(ED.title)}" aria-label="페이지 제목">
-        <span class="sb-status" aria-live="polite"></span>
-        <button class="icon-btn" data-ed="export" aria-label="이미지로 저장·공유">📤</button>
+        <button class="icon-btn" data-ed="close" aria-label="목록으로">←</button>
+        <div class="sb-titlebox">
+          <input class="sb-title" maxlength="40" value="${esc(ED.title)}" aria-label="페이지 제목">
+          <button type="button" class="sb-status" data-ed="retry" aria-live="polite"></button>
+        </div>
         <button class="icon-btn" data-ed="undo" aria-label="되돌리기">↶</button>
-        <button class="sb-save" data-ed="save">저장</button>
+        <button class="icon-btn" data-ed="redo" aria-label="다시 실행">↷</button>
+        <button class="icon-btn" data-ed="export" aria-label="이미지로 저장·공유">📤</button>
+        <button class="sb-save" data-ed="done">완료</button>
       </div>
       <div class="sb-stage"><div class="sb-wrap"></div></div>
       <div class="sb-tools"></div>`;
@@ -815,6 +1049,7 @@
     drawCanvas();
     drawTools();
     status();
+    if (ED.dirty) scheduleSave(600); // 이어서 고친 편집은 바로 저장
   }
 
   function layout() {
@@ -840,6 +1075,7 @@
       node.setAttribute('aria-label', `${{ IMAGE: '사진', TEXT: '글자', STICKER: '스티커' }[e.type]}${e.type === 'TEXT' ? `: ${e.content.text || ''}` : ''}`);
       if (e.id === ED.sel) node.classList.add('sel');
     });
+    hydrate(canvas, ED.els);
     // 선택 상자·손잡이는 다른 요소에 가려지지 않게 맨 위 층에 따로 그림
     const e = selEl();
     if (e) {
@@ -849,12 +1085,25 @@
   }
   const selStyle = (e) => `${elStyle(e)};z-index:100000`;
 
+  // 자동 저장 상태: 편집 중… → 저장 중… → 저장됨 ✓ (실패하면 눌러서 다시 시도)
   function status() {
     const s = $('#sbEditor .sb-status');
     if (!s) return;
-    s.textContent = ED.saving ? '저장 중…' : ED.dirty ? '저장 안 됨' : '저장됨 ✓';
-    s.className = `sb-status ${ED.dirty ? 'dirty' : ''}`;
+    const t = ED.lastSaved ? ` ${pad2(ED.lastSaved.getHours())}:${pad2(ED.lastSaved.getMinutes())}` : '';
+    s.textContent = ED.conflict ? '⚠ 충돌 · 눌러서 확인'
+      : ED.saving ? '저장 중…'
+        : ED.saveError ? '⚠ 저장 실패 · 다시 시도'
+          : ED.offline ? '오프라인 · 이 기기에 임시 보관'
+            : ED.dirty ? '편집 중…' : `저장됨 ✓${t}`;
+    s.className = `sb-status ${ED.saveError || ED.conflict ? 'error' : ED.dirty || ED.offline ? 'dirty' : ''}`;
+    s.disabled = !(ED.saveError || ED.conflict);
     $('#sbEditor [data-ed=undo]').disabled = !ED.hist.length;
+    $('#sbEditor [data-ed=redo]').disabled = !ED.future.length;
+  }
+  function scheduleSave(ms = 1200) {
+    if (!ED || ED.conflict) return;
+    clearTimeout(ED.saveTimer);
+    ED.saveTimer = setTimeout(() => save({ auto: true }), ms);
   }
 
   const selEl = () => ED.els.find((e) => e.id === ED.sel);
@@ -871,7 +1120,8 @@
       return;
     }
     t.innerHTML = `<div class="sb-ctx">
-      ${e.type === 'TEXT' ? '<button data-tool="edit">✏️ 글 수정</button>' : ''}
+      ${e.type === 'TEXT' ? '<button data-tool="edit">✏️ 글·글꼴·배경</button>' : ''}
+      ${e.type === 'STICKER' && DECO_SHAPES.includes(e.content.shape) ? '<button data-tool="deco">✏️ 글 수정</button>' : ''}
       ${e.type === 'IMAGE' ? '<button data-tool="frame">🖼️ 액자</button>' : ''}
       <button data-tool="rotL" aria-label="왼쪽으로 돌리기">⟲ 15°</button>
       <button data-tool="rotR" aria-label="오른쪽으로 돌리기">⟳ 15°</button>
@@ -886,23 +1136,37 @@
   function snapshot() {
     ED.hist.push(JSON.stringify({ els: ED.els, bg: ED.bg }));
     if (ED.hist.length > MAX_HISTORY) ED.hist.shift();
+    ED.future = []; // 새로 바꾸면 '다시 실행'할 것은 사라짐
   }
   function changedNow(redraw = true) {
     ED.dirty = true;
+    ED.ver++;
+    ED.saveError = false;
+    scheduleSave();
     try {
       localStorage.setItem(`sbDraft:${ED.page.id}`, JSON.stringify({ rev: ED.page.revision, els: ED.els.map(toRow), title: ED.title, bg: ED.bg, at: Date.now() }));
     } catch { /* 저장 공간 부족 등 */ }
     if (redraw) { drawCanvas(); drawTools(); }
     status();
   }
+  function restore(json) {
+    const st = JSON.parse(json);
+    ED.els = st.els;
+    ED.bg = st.bg;
+    if (!selEl()) ED.sel = null;
+    changedNow();
+  }
   function undo() {
     const last = ED.hist.pop();
     if (!last) return;
-    const s = JSON.parse(last);
-    ED.els = s.els;
-    ED.bg = s.bg;
-    if (!selEl()) ED.sel = null;
-    changedNow();
+    ED.future.push(JSON.stringify({ els: ED.els, bg: ED.bg }));
+    restore(last);
+  }
+  function redo() {
+    const next = ED.future.pop();
+    if (!next) return;
+    ED.hist.push(JSON.stringify({ els: ED.els, bg: ED.bg }));
+    restore(next);
   }
   function select(id) {
     ED.sel = id;
@@ -928,10 +1192,49 @@
 
   // ---------- 끌기·크기·회전 (마우스·터치 공통 Pointer Events) ----------
   let drag = null;
+  let pinch = null;
+  const pts = new Map(); // 화면에 닿아 있는 손가락(포인터)
+  const wrapEl = () => $('#sbEditor .sb-wrap');
+
+  // 크기·회전을 바꾼 요소를 화면에 바로 반영 (손을 뗄 때 전체를 다시 그림)
+  function refreshNode(e) {
+    const node = $(`#sbEditor .sb-el[data-id="${e.id}"]`);
+    if (!node) return;
+    node.style.cssText = elStyle(e);
+    const box = $('#sbEditor .sb-selbox');
+    if (box) box.style.cssText = selStyle(e);
+    if (e.type === 'TEXT' || (e.type === 'STICKER' && !e.content.shape)) {
+      node.innerHTML = elInner(e, photoIndex(), false);
+    }
+  }
+  // 가운데를 기준으로 k배 (사진·스티커는 비율 유지, 글자는 글자 크기도 함께)
+  function scaleFrom(e, st, k) {
+    const w = clamp(st.width * k, 40, 2000);
+    const h = e.type === 'TEXT' ? clamp(st.height * k, 30, 2400) : clamp(w * (st.height / st.width), 30, 2400);
+    e.x = st.x + st.width / 2 - w / 2;
+    e.y = st.y + st.height / 2 - h / 2;
+    e.width = w;
+    e.height = h;
+    if (e.type === 'TEXT') e.content = { ...e.content, size: clamp(Math.round((st.content?.size || 56) * k), 16, 240) };
+  }
+  const normDeg = (d) => ((d + 540) % 360) - 180;
+  function startPinch() {
+    const e = selEl();
+    if (!e) return;
+    const [a, b] = [...pts.values()];
+    drag = null;
+    snapshot();
+    pinch = { e, d0: Math.hypot(b.x - a.x, b.y - a.y) || 1, a0: Math.atan2(b.y - a.y, b.x - a.x), start: structuredClone(e) };
+  }
+
   function onDown(ev) {
+    pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (pts.size === 2 && ED.sel) { ev.preventDefault(); startPinch(); return; } // 두 손가락 = 확대·축소·회전
+    if (pts.size > 1) return;
     const handle = ev.target.closest('[data-h]');
     const node = handle ? $(`#sbEditor .sb-el[data-id="${ED.sel}"]`) : ev.target.closest('.sb-el');
     if (!node) { if (ED.sel && ev.target.closest('.sb-canvas')) select(null); return; }
+    wrapEl().style.touchAction = 'none'; // 두 번째 손가락이 화면 스크롤이 되지 않게
     const e = ED.els.find((x) => x.id === node.dataset.id);
     if (!e) return;
     ev.preventDefault();
@@ -943,6 +1246,18 @@
     try { (ev.target.closest('[data-h]') || target).setPointerCapture(ev.pointerId); } catch { /* 이미 손을 뗀 포인터 */ }
   }
   function onMove(ev) {
+    if (pts.has(ev.pointerId)) pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (pinch) {
+      if (pts.size < 2) return;
+      const [a, b] = [...pts.values()];
+      const k = Math.hypot(b.x - a.x, b.y - a.y) / pinch.d0;
+      scaleFrom(pinch.e, pinch.start, k);
+      let deg = normDeg(pinch.start.rotation + ((Math.atan2(b.y - a.y, b.x - a.x) - pinch.a0) * 180) / Math.PI);
+      for (const snap of [-180, -90, 0, 90, 180]) if (Math.abs(deg - snap) < 3) deg = snap;
+      pinch.e.rotation = deg;
+      refreshNode(pinch.e);
+      return;
+    }
     if (!drag || ev.pointerId !== drag.id) return;
     const dx = (ev.clientX - drag.sx) / ED.scale;
     const dy = (ev.clientY - drag.sy) / ED.scale;
@@ -968,26 +1283,48 @@
       for (const snap of [-180, -90, 0, 90, 180]) if (Math.abs(deg - snap) < 4) deg = snap;
       e.rotation = deg;
     }
-    drag.node.style.cssText = elStyle(e);
-    const box = $('#sbEditor .sb-selbox');
-    if (box) box.style.cssText = selStyle(e);
-    if (e.type === 'STICKER' && !e.content.shape) {
-      const st = $('.sb-sticker', drag.node);
-      if (st) st.style.fontSize = `${Math.round(Math.min(e.width, e.height) * 0.86)}px`;
-    }
+    if (drag.mode === 'move') {
+      drag.node.style.cssText = elStyle(e);
+      const box = $('#sbEditor .sb-selbox');
+      if (box) box.style.cssText = selStyle(e);
+    } else refreshNode(e);
   }
   function onUp(ev) {
+    pts.delete(ev.pointerId);
+    if (!pts.size && wrapEl()) wrapEl().style.touchAction = '';
+    if (pinch) {
+      if (pts.size < 2) { pinch = null; changedNow(); }
+      return;
+    }
     if (!drag || ev.pointerId !== drag.id) return;
     const was = drag;
     drag = null;
     if (was.moved) changedNow();
   }
 
+  // 마우스: Ctrl(⌘)+휠 = 확대·축소 (노트북 터치패드 두 손가락 벌리기도 같음), Alt+휠 = 회전
+  function onWheel(ev) {
+    const e = ED && selEl();
+    if (!e || !(ev.ctrlKey || ev.metaKey || ev.altKey) || !ev.target.closest('.sb-wrap')) return;
+    ev.preventDefault();
+    if (!ED.wheel) { snapshot(); ED.wheel = { start: structuredClone(e), k: 1 }; }
+    if (ev.altKey) e.rotation = normDeg(e.rotation + (ev.deltaY > 0 ? 3 : -3));
+    else {
+      ED.wheel.k = clamp(ED.wheel.k * Math.exp(-ev.deltaY * 0.002), 0.1, 10);
+      scaleFrom(e, ED.wheel.start, ED.wheel.k);
+    }
+    refreshNode(e);
+    clearTimeout(ED.wheelTimer);
+    ED.wheelTimer = setTimeout(() => { if (ED) { ED.wheel = null; changedNow(); } }, 350);
+  }
+
   function onKey(ev) {
     if (!ED || $('#sheet').classList.contains('open')) return;
     if (ev.target.matches('input, textarea')) return;
-    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') { ev.preventDefault(); undo(); return; }
-    if (ev.key === 'Escape') { if (ED.sel) select(null); else closeEditor(); return; }
+    const mod = ev.ctrlKey || ev.metaKey;
+    if (mod && (ev.key.toLowerCase() === 'y' || (ev.shiftKey && ev.key.toLowerCase() === 'z'))) { ev.preventDefault(); redo(); return; }
+    if (mod && ev.key.toLowerCase() === 'z') { ev.preventDefault(); undo(); return; }
+    if (ev.key === 'Escape') { if (ED.sel) select(null); else finishEditor(false); return; }
     const e = selEl();
     if (!e) return;
     const step = ev.shiftKey ? 20 : 5;
@@ -1011,6 +1348,7 @@
     if (!e) return;
     if (name === 'done') return select(null);
     if (name === 'edit') return editText(e);
+    if (name === 'deco') return editDeco(e);
     if (name === 'frame') return pickFrame(e);
     snapshot();
     if (name === 'rotL' || name === 'rotR') e.rotation = ((e.rotation + (name === 'rotL' ? -15 : 15) + 540) % 360) - 180;
@@ -1041,7 +1379,8 @@
           <label><input type="radio" name="font" value="hand" ${c.font !== 'basic' ? 'checked' : ''}><span style="font-family:Gaegu,cursive">손글씨</span></label>
           <label><input type="radio" name="font" value="basic" ${c.font === 'basic' ? 'checked' : ''}><span>고딕</span></label></div></div>
         <div class="field"><span>정렬</span><div class="cats">${[['left', '왼쪽'], ['center', '가운데'], ['right', '오른쪽']].map(([k, l]) => `<label><input type="radio" name="align" value="${k}" ${(c.align || 'left') === k ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></div>
-        <div class="field"><span>색</span><div class="swatches">${COLORS.map((col) => `<label><input type="radio" name="color" value="${col}" ${(c.color || COLORS[0]) === col ? 'checked' : ''}><span style="background:${col}" aria-label="${col}"></span></label>`).join('')}</div></div>
+        <div class="field"><span>글자 색</span><div class="swatches">${COLORS.map((col) => `<label><input type="radio" name="color" value="${col}" ${(c.color || COLORS[0]) === col ? 'checked' : ''}><span style="background:${col}" aria-label="${col}"></span></label>`).join('')}</div></div>
+        <div class="field"><span>글자 배경</span><div class="swatches">${Object.entries(TEXT_BGS).map(([k, [l, col]]) => `<label title="${l}"><input type="radio" name="bg" value="${k}" ${(c.bg || 'none') === k ? 'checked' : ''}><span class="${col ? '' : 'sw-none'}" style="${col ? `background:${col}` : ''}" aria-label="${l}"></span></label>`).join('')}</div></div>
         <button class="primary" type="submit">적용</button>
       </form>`);
     const f = $('#txForm', body);
@@ -1049,14 +1388,34 @@
     f.onsubmit = (ev) => {
       ev.preventDefault();
       snapshot();
-      e.content = { ...c, text: f.text.value.slice(0, 300), size: Number(f.size.value), font: f.font.value, align: f.align.value, color: f.color.value };
-      // 글이 길어지면 상자 높이를 늘려 줌
+      e.content = { ...c, text: f.text.value.slice(0, 300), size: Number(f.size.value), font: f.font.value, align: f.align.value, color: f.color.value, bg: f.bg.value };
+      // 글이 길어지면 상자 높이를 늘려 줌 (배경이 있으면 안쪽 여백만큼 더)
+      const padY = e.content.bg !== 'none' ? textPad(e.content.size).y * 2 : 0;
       const lines = Math.max(1, Math.ceil((e.content.text.length * e.content.size * 0.9) / e.width)) + (e.content.text.match(/\n/g) || []).length;
-      e.height = Math.max(e.height, Math.min(1200, lines * e.content.size * 1.35));
+      e.height = Math.max(e.height, Math.min(1200, lines * e.content.size * 1.35 + padY));
       closeSheet();
       changedNow();
     };
     setTimeout(() => f.text.focus(), 250);
+  }
+
+  function editDeco(e) {
+    const c = e.content;
+    const label = { stamp: '날짜 도장', ticket: '티켓', label: '장소 라벨' }[c.shape];
+    const body = openSheet(`<h2>${label}</h2>
+      <form id="dcForm">
+        <label class="field"><span>${c.shape === 'stamp' ? '가운데 글' : '글'}</span><input name="text" maxlength="24" value="${esc(c.text || '')}"></label>
+        ${c.shape === 'label' ? '' : `<label class="field"><span>${c.shape === 'stamp' ? '위 작은 글' : '아래 작은 글'}</span><input name="sub" maxlength="30" value="${esc(c.sub || '')}"></label>`}
+        <button class="primary" type="submit">적용</button>
+      </form>`);
+    $('#dcForm', body).onsubmit = (ev) => {
+      ev.preventDefault();
+      const f = ev.target;
+      snapshot();
+      e.content = { ...c, text: f.text.value.trim(), ...(f.sub ? { sub: f.sub.value.trim() } : {}) };
+      closeSheet();
+      changedNow();
+    };
   }
 
   function pickFrame(e) {
@@ -1087,20 +1446,50 @@
   }
 
   function pickSticker() {
+    // 이 기록장의 날짜·장소 (페이지 날짜가 있으면 그날 장소 먼저)
+    const t = trip();
+    const date = ED.page.page_date;
+    const days = shared().tripDays(t);
+    const places = state.places.filter((x) => x.trip_id === S.tripId);
+    const names = [...new Set((date ? places.filter((x) => visitKey(x) === date) : places).concat(places).map((x) => x.name))].slice(0, 10);
+    const stampDays = date ? [date] : days.slice(0, 6);
+    const deco = [
+      ...stampDays.map((d) => ({ label: `🔖 ${shared().short(d)} 날짜 도장`, make: () => dateStamp(d, 0, 0) })),
+      ...names.map((nm) => ({ label: `📍 ${nm}`, make: () => placeLabel(nm, 0, 0) })),
+      { label: `🎫 ${t?.title || '여행'} 티켓`, make: () => tripTicket(t, 0, 0) },
+    ];
     const body = openSheet(`<h2>스티커</h2>
-      <div class="sticker-grid">${STICKERS.map((s) => `<button type="button" data-st="${s}" aria-label="스티커 ${s}">${s}</button>`).join('')}</div>
-      <h3 style="margin:16px 0 8px">마스킹테이프</h3>
-      <div class="sticker-grid">${TAPES.map((c) => `<button type="button" data-tape="${c}" aria-label="테이프"><i class="tape-chip" style="background:${c}"></i></button>`).join('')}</div>`);
+      <h3 class="st-sec">📅 이 기록장의 날짜·장소</h3>
+      <div class="deco-list">${deco.map((d, i) => `<button type="button" class="cand" data-deco="${i}">${esc(d.label)}</button>`).join('')}</div>
+      <small class="hint">기록의 날짜·장소 이름을 글자로 넣어요. 나중에 기록을 고쳐도 붙인 스티커는 그대로예요 (눌러서 글을 고칠 수 있어요).</small>
+      <h3 class="st-sec">🎀 장식</h3>
+      <div class="sticker-grid">${TAPES.map((c) => `<button type="button" data-tape="${c}" aria-label="마스킹테이프"><i class="tape-chip" style="background:${c}"></i></button>`).join('')}
+        <button type="button" data-preset="good" aria-label="GOOD DAY 도장">🔖</button>
+        <button type="button" data-preset="ticket" aria-label="빈 티켓">🎫</button>
+        <button type="button" data-preset="label" aria-label="빈 라벨">🏷️</button></div>
+      ${STICKER_SETS.map(([g, list]) => `<h3 class="st-sec">${g}</h3>
+        <div class="sticker-grid">${list.map((x) => `<button type="button" data-st="${x}" aria-label="스티커 ${x}">${x}</button>`).join('')}</div>`).join('')}`);
+    const put = (el) => {
+      closeSheet();
+      addEl({ ...el, ...centerSpot(el.width, el.height), rotation: el.content.shape === 'stamp' ? -10 : el.content.shape === 'tape' ? -8 : 0 });
+    };
     body.onclick = (ev) => {
       const s = ev.target.closest('[data-st]');
-      const t = ev.target.closest('[data-tape]');
-      if (s) { closeSheet(); addEl({ type: 'STICKER', ...centerSpot(140, 140), width: 140, height: 140, content: { sticker: s.dataset.st } }); }
-      if (t) { closeSheet(); addEl({ type: 'STICKER', ...centerSpot(260, 60), width: 260, height: 60, rotation: -8, content: { shape: 'tape', color: t.dataset.tape } }); }
+      const tp = ev.target.closest('[data-tape]');
+      const dc = ev.target.closest('[data-deco]');
+      const pr = ev.target.closest('[data-preset]')?.dataset.preset;
+      if (s) put({ type: 'STICKER', width: 140, height: 140, content: { sticker: s.dataset.st } });
+      else if (tp) put({ type: 'STICKER', width: 260, height: 60, content: { shape: 'tape', color: tp.dataset.tape } });
+      else if (dc) put(deco[Number(dc.dataset.deco)].make());
+      else if (pr === 'good') put({ type: 'STICKER', width: 200, height: 200, content: { shape: 'stamp', text: 'GOOD', sub: 'DAY', color: '#6E5FAE' } });
+      else if (pr === 'ticket') put({ type: 'STICKER', width: 440, height: 170, content: { shape: 'ticket', text: '어디로?', sub: '', color: '#d9f0e6' } });
+      else if (pr === 'label') put({ ...placeLabel('장소', 0, 0) });
     };
   }
 
   function pickBg() {
-    const body = openSheet(`<h2>배경</h2><div class="bg-grid">${Object.entries(BGS).map(([k, l]) => `<button type="button" data-bg="${k}" class="${ED.bg === k ? 'on' : ''}"><i class="sb-canvas bg-${k}"></i>${l}</button>`).join('')}</div>`);
+    const body = openSheet(`<h2>배경</h2>${BG_GROUPS.map(([g, list]) => `<h3 class="st-sec">${g}</h3>
+      <div class="bg-grid">${Object.entries(list).map(([k, l]) => `<button type="button" data-bg="${k}" class="${ED.bg === k ? 'on' : ''}" aria-pressed="${ED.bg === k}"><i class="sb-canvas bg-${k}"></i>${l}</button>`).join('')}</div>`).join('')}`);
     body.onclick = (ev) => {
       const b = ev.target.closest('[data-bg]');
       if (!b) return;
@@ -1124,7 +1513,9 @@
       ${photos.length ? [...groups].map(([d, list]) => `<h3 class="tl-date">${d ? fmtDate(d) : '날짜 없음'}${d === date ? ' · 이 페이지 날짜' : ''}</h3>
         <div class="sb-photo-grid">${list.map((p) => `<button type="button" data-ph="${p.id}" aria-pressed="false"><img src="${esc(p.thumb)}" alt="${esc(p.placeName)}" loading="lazy"></button>`).join('')}</div>`).join('')
         : '<div class="empty small">이 기록장에 올린 사진이 아직 없어요</div>'}
-      <div class="sticky-actions"><button class="primary" id="phAdd" disabled>사진 넣기</button></div>`);
+      <div class="sticky-actions">
+        <label class="sb-auto"><input type="checkbox" id="phAuto" checked> 📍 날짜·장소 스티커도 함께 넣기</label>
+        <button class="primary" id="phAdd" disabled>사진 넣기</button></div>`);
     body.onclick = async (ev) => {
       const b = ev.target.closest('[data-ph]');
       if (b) {
@@ -1140,14 +1531,26 @@
       if (ev.target.id === 'phAdd') {
         const idx = photoIndex();
         const list = [...chosen].map((id) => idx.get(id)).filter(Boolean);
+        const auto = $('#phAuto', body).checked;
         closeSheet();
         snapshot();
+        const labeled = new Set();
         for (const p of list) {
           const a = await aspectOf(p.thumb);
           const w = 420;
-          ED.els.push({ id: uuid(), type: 'IMAGE', ...centerSpot(w, w * a), width: w, height: Math.round(w * a), rotation: 0, zIndex: topZ(), photoId: p.id, content: { frame: 'tape', alt: p.placeName } });
+          const img = { id: uuid(), type: 'IMAGE', ...centerSpot(w, w * a), width: w, height: Math.round(w * a), rotation: 0, zIndex: topZ(), photoId: p.id, content: { frame: 'tape', alt: p.placeName } };
+          ED.els.push(img);
+          // 사진 아래 장소 라벨 (같은 장소는 한 번), 페이지에 날짜 도장이 없으면 하나
+          if (auto && p.placeName && !labeled.has(p.placeName)) {
+            labeled.add(p.placeName);
+            const lb = placeLabel(p.placeName, img.x, Math.min(CH - 80, img.y + img.height + 14));
+            ED.els.push({ ...lb, id: uuid(), rotation: -2, zIndex: topZ() });
+          }
+          if (auto && p.date && !ED.els.some((x) => x.content?.shape === 'stamp')) {
+            ED.els.push({ ...dateStamp(p.date, CW - 240, 30), id: uuid(), rotation: -12, zIndex: topZ() });
+          }
         }
-        ED.sel = ED.els.at(-1)?.id || null;
+        ED.sel = list.length ? ED.els.find((x) => x.photoId === list.at(-1).id && x.type === 'IMAGE')?.id || null : null;
         changedNow();
       }
     };
@@ -1179,18 +1582,28 @@
           ED.sel = ED.els.at(-1).id;
           ED.saving = false;
           changedNow();
-          toast('사진을 올렸어요. 저장을 눌러야 페이지에 남아요');
+          toast('사진을 올렸어요');
         }
       } catch (err) { toast(err.message); } finally { ED.saving = false; status(); }
     };
   }
 
   // ---------- 저장 ----------
-  async function save() {
-    if (!ED || ED.saving) return;
-    if (!navigator.onLine) return toast('오프라인이에요. 편집 내용은 이 기기에 임시로 남아 있어요');
+  async function save({ auto = false } = {}) {
+    if (!ED || ED.saving || ED.conflict) return false;
+    clearTimeout(ED.saveTimer);
+    if (!navigator.onLine) {
+      ED.offline = true;
+      status();
+      if (!auto) toast('오프라인이에요. 편집 내용은 이 기기에 임시로 남아 있어요');
+      return false;
+    }
     ED.saving = true;
+    ED.offline = false;
+    ED.saveError = false;
     status();
+    const ver = ED.ver;
+    const page = ED.page;
     const { pq } = shared();
     try {
       const title = $('#sbEditor .sb-title').value.trim();
@@ -1201,18 +1614,34 @@
       }
       const [r] = await pq(sb.rpc('save_scrapbook_page', { p_page_id: ED.page.id, p_expected_revision: ED.page.revision, p_elements: ED.els.map(toRow) }));
       if (!r) throw new Error('저장 결과를 확인하지 못했어요');
-      ED.page.revision = r.revision;
-      S.els.set(ED.page.id, ED.els.map((e) => structuredClone(e)));
+      page.revision = r.revision;
       if (r.orphan_paths?.length) removeFiles(r.orphan_paths).catch(() => {}); // 남이 올린 사진은 권한상 못 지울 수 있음
+      if (!ED || ED.page !== page) return true;
+      S.els.set(page.id, ED.els.map((e) => structuredClone(e)));
       ED.uploaded.clear();
-      ED.dirty = false;
-      localStorage.removeItem(`sbDraft:${ED.page.id}`);
-      toast('저장했어요');
+      ED.lastSaved = new Date();
+      if (ED.ver === ver) { // 저장하는 동안 더 고치지 않았으면
+        ED.dirty = false;
+        localStorage.removeItem(`sbDraft:${page.id}`);
+      }
+      if (!auto) toast('저장했어요');
+      return true;
     } catch (err) {
-      if (err.code === 'PT409') conflict(err.message);
-      else toast(`${err.message} · 편집 내용은 이 기기에 임시로 남아 있어요`);
+      if (!ED) return false;
+      if (err.code === 'PT409') { ED.conflict = true; ED.conflictMsg = err.message; conflict(err.message); }
+      else {
+        ED.saveError = true;
+        if (/check constraint|입력한 내용/.test(err.message) && !['paper', 'grid', 'kraft', 'mint', 'lilac'].includes(ED.bg)) {
+          toast('새 배경을 쓰려면 DB 설정(migrate-006)이 먼저 필요해요. 편집은 이 기기에 임시로 남아 있어요');
+        } else if (!auto) toast(`${err.message} · 편집 내용은 이 기기에 임시로 남아 있어요`);
+      }
+      return false;
     } finally {
-      if (ED) { ED.saving = false; status(); }
+      if (ED) {
+        ED.saving = false;
+        status();
+        if (ED.dirty && !ED.saveError && !ED.conflict && !ED.offline) scheduleSave(); // 저장하는 동안 고친 것
+      }
     }
   }
 
@@ -1252,25 +1681,41 @@
     };
   }
 
-  function closeEditor(force = false) {
+  function closeEditor(force = false, skipConfirm = false) {
     if (!ED) return;
-    if (!force && ED.dirty && !confirm('저장하지 않은 편집이 있어요. 닫을까요?\n(이 기기에는 임시로 남아서 다음에 이어서 고칠 수 있어요)')) return;
+    if (!force && !skipConfirm && ED.dirty && !confirm('저장하지 않은 편집이 있어요. 닫을까요?\n(이 기기에는 임시로 남아서 다음에 이어서 고칠 수 있어요)')) return;
     // 올리고 저장하지 않은 사진: 임시 편집(이 기기)에서 아직 쓰므로 남겨 둠. 편집을 버리면(다시 불러오기) 지움
     if (force && ED.uploaded.size) removeFiles([...ED.uploaded]).catch(() => {});
+    clearTimeout(ED.saveTimer);
+    clearTimeout(ED.wheelTimer);
     $('#sbEditor').classList.add('hidden');
     $('#sbEditor').innerHTML = '';
     document.body.classList.remove('sb-open');
     ED = null;
     drag = null;
+    pinch = null;
+    pts.clear();
     render();
+  }
+  /** ← / 완료: 남은 편집을 저장한 뒤 닫기. view 면 이 페이지를 감상 모드로 */
+  async function finishEditor(view) {
+    if (!ED) return;
+    const page = ED.page;
+    if (ED.dirty && !ED.conflict) await save({ auto: true });
+    if (!ED) return;
+    if (ED.dirty && !confirm('아직 저장하지 못한 편집이 있어요 (이 기기에는 임시로 남아 있어요). 닫을까요?')) return;
+    closeEditor(false, true); // 이미 물어봤음. 올린 사진은 임시 편집이 쓰므로 남겨 둠
+    if (view) { const i = S.pages.findIndex((x) => x.id === page.id); if (i >= 0) openStory(i); }
   }
 
   function bindEditor() {
     const box = $('#sbEditor');
     box.addEventListener('pointerdown', (ev) => { if (ED && ev.target.closest('.sb-wrap')) onDown(ev); });
-    box.addEventListener('pointermove', (ev) => { if (ED) onMove(ev); });
-    box.addEventListener('pointerup', (ev) => { if (ED) onUp(ev); });
-    box.addEventListener('pointercancel', (ev) => { if (ED && drag) { onUp(ev); } });
+    // 손가락을 떼는 순간 그 자리 요소가 다시 그려져도 놓치지 않게 창 전체에서 받음
+    window.addEventListener('pointermove', (ev) => { if (ED) onMove(ev); });
+    window.addEventListener('pointerup', (ev) => { if (ED) onUp(ev); });
+    window.addEventListener('pointercancel', (ev) => { if (ED) onUp(ev); });
+    box.addEventListener('wheel', onWheel, { passive: false });
     box.addEventListener('dblclick', (ev) => {
       const node = ev.target.closest('.sb-el');
       const e = node && ED?.els.find((x) => x.id === node.dataset.id);
@@ -1283,13 +1728,15 @@
     box.addEventListener('click', (ev) => {
       if (!ED) return;
       const ed = ev.target.closest('[data-ed]')?.dataset.ed;
-      if (ed === 'close') return closeEditor();
+      if (ed === 'close') return finishEditor(false);
+      if (ed === 'done') return finishEditor(true);
       if (ed === 'undo') return undo();
+      if (ed === 'redo') return redo();
+      if (ed === 'retry') { if (ED.conflict) return conflict(ED.conflictMsg); ED.saveError = false; return save(); }
       if (ed === 'export') { // 화면에 보이는 그대로 (저장 전 편집도 포함)
         ED.title = $('#sbEditor .sb-title').value.trim() || ED.page.title;
         return exportPage({ ...ED.page, title: ED.title }, ED.els, ED.bg);
       }
-      if (ed === 'save') return save();
       const add = ev.target.closest('[data-add]')?.dataset.add;
       if (add === 'photo') return pickPhotos();
       if (add === 'text') return addText();
@@ -1299,11 +1746,12 @@
       if (tl) tool(tl);
     });
     box.addEventListener('input', (ev) => {
-      if (ED && ev.target.matches('.sb-title')) { ED.title = ev.target.value; ED.dirty = true; status(); }
+      if (ED && ev.target.matches('.sb-title')) { ED.title = ev.target.value; ED.dirty = true; ED.ver++; status(); scheduleSave(1500); }
     });
     document.addEventListener('keydown', onKey);
     window.addEventListener('resize', () => { if (ED) { layout(); drawCanvas(); } });
     window.addEventListener('beforeunload', (ev) => { if (ED?.dirty) { ev.preventDefault(); ev.returnValue = ''; } });
+    window.addEventListener('online', () => { if (ED?.dirty) { ED.offline = false; scheduleSave(300); } });
   }
 
   // ---------- 연결 ----------
