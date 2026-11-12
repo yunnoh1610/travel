@@ -210,7 +210,7 @@ const db = {
     // 005(기록 시각·일정 연결) 전이면 새 칸 없이 예전처럼 읽음
     const run = (v5) => {
       let qb = sb.from('places')
-        .select(`id, trip_id, user_id, name, lat, lng, visited_at, ${v5 ? 'visited_time, plan_item_id, ' : ''}${state.v009 ? 'title, mood, tags, ' : ''}comment, memo, category, created_at, author:profiles(name), trip:trips(title), photos(id, user_id, path, thumb_path${v5 ? ', taken_at' : ''}), place_comments(count)`)
+        .select(`id, trip_id, user_id, name, lat, lng, visited_at, ${v5 ? 'visited_time, plan_item_id, ' : ''}${state.v009 ? 'title, mood, tags, ' : ''}comment, memo, category, created_at, author:profiles!places_user_id_fkey(name), trip:trips(title), photos(id, user_id, path, thumb_path${v5 ? ', taken_at' : ''}), place_comments(count)`)
         .order('id', { referencedTable: 'photos', ascending: true });
       if (filter !== 'all') qb = qb.eq('trip_id', filter);
       return qb;

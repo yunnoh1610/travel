@@ -125,6 +125,10 @@
       if (window.MOCK.no007 && src === 'trips' && (new007.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new007.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new007.test(k))))) {
         return err('column trips.country does not exist', '42703');
       }
+      // 실제 Supabase 흉내: 009 의 즐겨찾기 표 때문에 places → profiles 연결이 두 갈래가 되어, 어느 연결인지 적지 않으면 실패 (PGRST201)
+      if (src === 'places' && db.place_favorites && /(^|[\s,:])profiles\(/.test(this.cols || '')) {
+        return err("Could not embed because more than one relationship was found for 'places' and 'profiles'", 'PGRST201');
+      }
       const new009 = /(^|,\s*)title\b|\bmood\b|\btags\b/; // trips(title) 처럼 다른 표의 칸은 빼고
       if (window.MOCK.no009 && src === 'places' && (new009.test(this.cols || '') || (this.rows || []).some((r) => Object.keys(r).some((k) => new009.test(k))) || (this.vals && Object.keys(this.vals).some((k) => new009.test(k))))) {
         return err('column places.title does not exist', '42703');
