@@ -883,7 +883,7 @@ function renderMap(fit) {
       : '반가워요! 먼저 아래 <b>기록장</b> 탭에서 여행이나 모임 기록장을 만들고, 함께한 친구를 초대해 보세요.';
     $('#view-map').insertAdjacentHTML('beforeend', `<div class="map-empty">${msg}</div>`);
   } else if (fit) {
-    map.fitBounds(ordered.map((p) => [p.lat, p.lng]), { padding: [60, 60], maxZoom: 14 });
+    map.fitBounds(ordered.map((p) => [p.lat, p.lng]), { padding: [60, 60], maxZoom: 14, animate: false }); // 다른 탭에 있을 때(지도가 숨겨진 동안) 애니메이션 오류 방지
   }
 }
 

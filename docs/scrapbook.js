@@ -107,7 +107,8 @@
     if (!S.tripId) { r.innerHTML = shared().pickTripHtml('스크랩북을'); return; }
     const t = trip();
     if (!t) { r.innerHTML = '<div class="empty">기록장을 찾을 수 없어요</div>'; return; }
-    const head = `<div class="section-head"><h2>📔 ${esc(t.title)}</h2><button class="chip-btn" data-act="new-page">＋ 새 페이지</button></div>`;
+    const head = `<div class="section-head"><h2>📔 ${esc(t.title)}</h2>
+      <div class="sb-head-btns">${S.pages.length ? '<button class="chip-btn" data-act="story" aria-label="스토리로 보기">▶ 스토리</button>' : ''}<button class="chip-btn" data-act="new-page">＋ 새 페이지</button></div></div>`;
     if (S.loading) { r.innerHTML = `${head}<div class="empty"><div class="spinner"></div>불러오는 중…</div>`; return; }
     if (S.error) {
       r.innerHTML = head + (S.error.code === 'NEEDS_MIGRATION'
@@ -123,6 +124,7 @@
         <div class="sb-page-tools">
           <button class="icon-btn" data-pmove="-1" ${i === 0 ? 'disabled' : ''} aria-label="앞으로">◀</button>
           <button class="icon-btn" data-pmove="1" ${i === S.pages.length - 1 ? 'disabled' : ''} aria-label="뒤로">▶</button>
+          <button class="icon-btn" data-pexp aria-label="이미지로 저장·공유">📤</button>
           <button class="icon-btn" data-pdel aria-label="페이지 삭제">🗑</button>
         </div>
       </div>`).join('')}</div>`
@@ -143,6 +145,7 @@
       if (pick) { state.filter = Number(pick.dataset.pickTrip); refresh(true); return; }
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act === 'new-page') return openNewPage();
+      if (act === 'story') return openStory(0);
       if (act === 'reload') return load(true);
       if (act === 'new-trip') return openTripForm();
       const card = e.target.closest('[data-page]');
@@ -150,6 +153,7 @@
       const page = S.pages.find((p) => p.id === Number(card.dataset.page));
       if (e.target.closest('[data-open]')) return openEditor(page);
       if (e.target.closest('[data-pdel]')) return deletePage(page);
+      if (e.target.closest('[data-pexp]')) return exportPage(page, S.els.get(page.id) || [], page.background);
       const mv = e.target.closest('[data-pmove]');
       if (mv) return movePage(page, Number(mv.dataset.pmove));
     });
@@ -279,6 +283,502 @@
   });
 
   // =====================================================================
+  // 이미지로 저장·공유
+  // 저장된 요소 목록을 화면과 같은 모양으로 고화질 캔버스(2000×2800)에 그려요. (planner.css 의 스크랩북 모양과 같은 값)
+  // =====================================================================
+  const EXPORT_SCALE = 2;
+  let FONTS = {};
+  const HAND_FONT = '"Gaegu", "Gowun Dodum", cursive';
+  const BASIC_FONT = '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
+  // 편집 화면과 같은 글꼴·자간을 쓰려고 실제 CSS 값을 읽어 옴 (테마마다 다를 수 있음)
+  function cssText(className) {
+    const el = document.createElement('div');
+    el.className = className;
+    el.style.cssText = 'position:absolute;visibility:hidden;left:-9999px;top:0';
+    el.textContent = '가';
+    $('#sbEditor')?.appendChild(el) || document.body.appendChild(el);
+    const cs = getComputedStyle(el);
+    const out = { family: cs.fontFamily, weight: cs.fontWeight, spacing: cs.letterSpacing };
+    el.remove();
+    return out;
+  }
+  function applyFont(ctx, st, size, fallback) {
+    ctx.font = `${st?.weight || 400} ${size}px ${st?.family || fallback}`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = st?.spacing && st.spacing !== 'normal' ? st.spacing : '0px';
+  }
+  const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+
+  async function loadBitmap(url) {
+    const r = await fetch(url, { mode: 'cors' });
+    if (!r.ok) throw new Error('사진을 불러오지 못했어요');
+    const blob = await r.blob();
+    try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch { return createImageBitmap(blob); }
+  }
+
+  function drawBackground(ctx, bg, W = CW, H = CH) {
+    const fill = { paper: '#f6efe1', grid: '#fbfaf4', kraft: '#d7b98e', mint: '#e3f5ef', lilac: '#efe6fb' }[bg] || '#f6efe1';
+    ctx.fillStyle = fill;
+    ctx.fillRect(0, 0, W, H);
+    if (bg === 'paper' || bg === 'kraft') {
+      const [step, r, color] = bg === 'paper' ? [22, 1.3, 'rgba(120, 90, 40, .07)'] : [18, 1.75, 'rgba(90, 60, 20, .12)'];
+      ctx.fillStyle = color;
+      for (let y = step / 2; y < H; y += step) {
+        for (let x = step / 2; x < W; x += step) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+      }
+    } else if (bg === 'grid') {
+      ctx.fillStyle = '#d9e8f2';
+      for (let y = 0; y < H; y += 50) ctx.fillRect(0, y, W, 1.5);
+      for (let x = 0; x < W; x += 50) ctx.fillRect(x, 0, 1.5, H);
+    }
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+    else {
+      ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+    }
+  }
+
+  // object-fit: cover 처럼 잘라서 채우기
+  function drawCover(ctx, img, x, y, w, h) {
+    const s = Math.max(w / img.width, h / img.height);
+    const sw = w / s;
+    const sh = h / s;
+    ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, x, y, w, h);
+  }
+
+  function drawMissing(ctx, x, y, w, h) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.fillStyle = '#f7f7f7'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#eeeeee'; ctx.lineWidth = 12;
+    for (let k = -h; k < w; k += 34) { ctx.beginPath(); ctx.moveTo(x + k, y + h); ctx.lineTo(x + k + h, y); ctx.stroke(); }
+    ctx.fillStyle = '#888'; ctx.font = `32px ${BASIC_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('사진이 지워졌어요', x + w / 2, y + h / 2);
+    ctx.restore();
+  }
+
+  function shadowed(ctx, blur, offY, alpha, fn) {
+    ctx.save();
+    ctx.shadowColor = `rgba(0,0,0,${alpha})`;
+    ctx.shadowBlur = blur * EXPORT_SCALE; // 그림자 번짐은 확대 비율을 따르지 않아서 직접 곱함
+    ctx.shadowOffsetY = offY * EXPORT_SCALE;
+    fn();
+    ctx.restore();
+  }
+
+  function drawImageEl(ctx, e, img, w, h) {
+    const c = e.content || {};
+    const x = -w / 2;
+    const y = -h / 2;
+    const frame = c.frame || 'none';
+    if (frame === 'polaroid') {
+      shadowed(ctx, 18, 6, 0.18, () => { ctx.fillStyle = '#fff'; ctx.fillRect(x, y, w, h); });
+      const pad = w * 0.04; // CSS padding 의 % 는 모두 너비 기준
+      const iw = w - pad * 2;
+      const ih = h - pad - w * 0.16;
+      if (img) drawCover(ctx, img, x + pad, y + pad, iw, Math.max(1, ih)); else drawMissing(ctx, x + pad, y + pad, iw, Math.max(1, ih));
+      if (c.caption) {
+        ctx.save();
+        ctx.beginPath(); ctx.rect(x + w * 0.04, y + h * 0.86, w * 0.92, h * 0.12); ctx.clip();
+        ctx.fillStyle = '#3a352f'; applyFont(ctx, FONTS.caption, 40, HAND_FONT); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(c.caption, 0, y + h * 0.92);
+        ctx.restore();
+      }
+      return;
+    }
+    if (frame === 'tape') {
+      shadowed(ctx, 12, 4, 0.15, () => { ctx.fillStyle = '#fff'; ctx.fillRect(x, y, w, h); });
+    }
+    ctx.save();
+    if (frame === 'round') { roundRect(ctx, x, y, w, h, 40); ctx.clip(); }
+    if (img) drawCover(ctx, img, x, y, w, h); else drawMissing(ctx, x, y, w, h);
+    ctx.restore();
+    if (frame === 'tape') {
+      const tw = w * 0.3;
+      const th = Math.max(h * 0.11, 26);
+      const strip = (cx, cy, color) => {
+        ctx.save(); ctx.translate(cx, cy); ctx.rotate((-28 * Math.PI) / 180);
+        ctx.fillStyle = color; ctx.fillRect(-tw / 2, -th / 2, tw, th); ctx.restore();
+      };
+      strip(x - w * 0.06 + tw / 2, y - h * 0.05 + th / 2, 'rgba(247, 200, 208, .8)');
+      strip(x + w + w * 0.06 - tw / 2, y + h + h * 0.05 - th / 2, 'rgba(201, 228, 246, .85)');
+    }
+  }
+
+  // 글자를 상자 너비에 맞춰 줄바꿈 (단어 단위, 너무 길면 글자 단위)
+  function wrapText(ctx, text, maxW) {
+    const lines = [];
+    for (const para of String(text || '').split('\n')) {
+      let line = '';
+      for (const tok of para.match(/\S+\s*|\s+/g) || ['']) {
+        if (ctx.measureText(line + tok).width <= maxW) { line += tok; continue; }
+        if (line) { lines.push(line.trimEnd()); line = ''; }
+        const t = tok.trimStart();
+        if (ctx.measureText(t).width <= maxW) { line = t; continue; }
+        for (const ch of t) { // 한 단어가 상자보다 길면 글자 단위로
+          if (ctx.measureText(line + ch).width > maxW && line) { lines.push(line); line = ''; }
+          line += ch;
+        }
+      }
+      lines.push(line.trimEnd());
+    }
+    return lines;
+  }
+
+  function drawTextEl(ctx, e, w, h) {
+    const c = e.content || {};
+    const size = Number(c.size) || 56;
+    const hand = (c.font || 'hand') !== 'basic';
+    applyFont(ctx, hand ? FONTS.hand : FONTS.basic, size, hand ? HAND_FONT : BASIC_FONT);
+    ctx.fillStyle = c.color || '#2d2a26';
+    ctx.textBaseline = 'middle';
+    const align = c.align || 'left';
+    ctx.textAlign = align;
+    const ax = align === 'center' ? 0 : align === 'right' ? w / 2 : -w / 2;
+    const lh = size * 1.3;
+    wrapText(ctx, c.text, w).forEach((ln, i) => ctx.fillText(ln, ax, -h / 2 + lh * i + lh / 2));
+  }
+
+  function drawStickerEl(ctx, e, w, h) {
+    const c = e.content || {};
+    if (c.shape === 'tape') {
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = c.color || TAPES[0];
+      ctx.beginPath();
+      ctx.moveTo(-w / 2 + w * 0.02, -h / 2); ctx.lineTo(-w / 2 + w * 0.98, -h / 2 + h * 0.04);
+      ctx.lineTo(w / 2, h / 2); ctx.lineTo(-w / 2, -h / 2 + h * 0.96); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+      return;
+    }
+    const fs = Math.round(Math.min(w, h) * 0.86);
+    ctx.font = `${fs}px ${EMOJI_FONT}`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(c.sticker || '⭐', 0, fs * 0.04);
+  }
+
+  /** 페이지 → 캔버스 (2000×2800). 불러오지 못한 사진 수도 돌려줌 */
+  async function renderPageCanvas(bg, els) {
+    try { await Promise.all([document.fonts.load(`700 56px ${HAND_FONT}`), document.fonts.load(`40px ${HAND_FONT}`)]); } catch { /* 기본 글꼴로 */ }
+    FONTS = { hand: cssText('sb-text font-hand'), basic: cssText('sb-text font-basic'), caption: cssText('sb-caption') };
+    const photos = photoIndex();
+    const list = [...els].sort((a, b) => a.zIndex - b.zIndex);
+    await signPaths(list.map((e) => e.assetPath).filter(Boolean));
+    let failed = 0;
+    const bitmaps = await Promise.all(list.map(async (e) => {
+      if (e.type !== 'IMAGE') return null;
+      const src = srcOf(e, photos, false);
+      if (!src) return null;
+      try { return await loadBitmap(src); } catch { failed++; return null; }
+    }));
+    const canvas = document.createElement('canvas');
+    canvas.width = CW * EXPORT_SCALE;
+    canvas.height = CH * EXPORT_SCALE;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
+    drawBackground(ctx, bg);
+    list.forEach((e, i) => {
+      ctx.save();
+      ctx.translate(e.x + e.width / 2, e.y + e.height / 2);
+      ctx.rotate(((e.rotation || 0) * Math.PI) / 180);
+      if (e.type === 'IMAGE') drawImageEl(ctx, e, bitmaps[i], e.width, e.height);
+      else if (e.type === 'TEXT') drawTextEl(ctx, e, e.width, e.height);
+      else drawStickerEl(ctx, e, e.width, e.height);
+      ctx.restore();
+    });
+    bitmaps.forEach((b) => b?.close?.());
+    return { canvas, failed };
+  }
+  const toJpeg = (canvas) => new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('이미지를 만들지 못했어요'))), 'image/jpeg', 0.92));
+
+  // ---------- 인스타그램 스토리 크기 (1080×1920, 9:16) ----------
+  const STORY_W = 1080;
+  const STORY_H = 1920;
+  const pageSubtitle = (page) => `${page.title || ''}${page.page_date ? ` · ${fmtDate(page.page_date)}` : ''}`;
+  function fitFillText(ctx, text, x, y, maxW, size, st, fallback) {
+    let s = size;
+    applyFont(ctx, st, s, fallback);
+    while (s > 20 && ctx.measureText(text).width > maxW) { s -= 2; applyFont(ctx, st, s, fallback); }
+    ctx.fillText(text, x, y);
+  }
+  /** 배경 무늬 위에 페이지를 카드처럼 올리고, 위에 기록장 제목·날짜를 넣음 */
+  function composeStory(pageCanvas, bg, page) {
+    const c = document.createElement('canvas');
+    c.width = STORY_W;
+    c.height = STORY_H;
+    const ctx = c.getContext('2d');
+    const k = STORY_W / CW;
+    ctx.save();
+    ctx.scale(k, k);
+    drawBackground(ctx, bg, CW, STORY_H / k);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(47, 42, 74, .07)';
+    ctx.fillRect(0, 0, STORY_W, STORY_H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#2d2a26';
+    fitFillText(ctx, trip()?.title || '여행 스크랩북', STORY_W / 2, 150, 960, 72, FONTS.hand, HAND_FONT);
+    ctx.fillStyle = 'rgba(45, 42, 38, .62)';
+    fitFillText(ctx, pageSubtitle(page), STORY_W / 2, 222, 960, 34, FONTS.basic, BASIC_FONT);
+    const pw = 940;
+    const ph = Math.round((pw * CH) / CW);
+    const x = (STORY_W - pw) / 2;
+    const y = 290;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, .22)';
+    ctx.shadowBlur = 40;
+    ctx.shadowOffsetY = 14;
+    ctx.fillStyle = '#fff';
+    roundRect(ctx, x, y, pw, ph, 28);
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    roundRect(ctx, x, y, pw, ph, 28);
+    ctx.clip();
+    ctx.drawImage(pageCanvas, x, y, pw, ph);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(45, 42, 38, .45)';
+    applyFont(ctx, FONTS.basic, 30, BASIC_FONT);
+    ctx.fillText('📒 여행 기록', STORY_W / 2, y + ph + (STORY_H - y - ph) / 2);
+    return c;
+  }
+
+  const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_').slice(0, 40) || '스크랩북';
+
+  /**
+   * 이미지를 만든 뒤 미리보기 창에서 공유/저장 (휴대폰은 버튼을 눌러야 공유 창이 열려요)
+   * mode: 'page' = 페이지 그대로(5:7, 2000×2800) / 'story' = 인스타그램 스토리(9:16, 1080×1920)
+   */
+  async function exportPage(page, els, bg, mode = 'page', onClose) {
+    toast('이미지 만드는 중…');
+    let base;
+    try { base = await renderPageCanvas(bg, els); } catch (err) { toast(err.message || '이미지를 만들지 못했어요'); onClose?.(); return; }
+    $('#toast').classList.remove('show');
+    const made = {};
+    async function make(m) {
+      if (made[m]) return made[m];
+      const cv = m === 'story' ? composeStory(base.canvas, bg, page) : base.canvas;
+      const blob = await toJpeg(cv);
+      const name = `${safeName(trip()?.title)}_${safeName(page.title)}${m === 'story' ? '_스토리' : ''}.jpg`;
+      made[m] = { blob, name, url: URL.createObjectURL(blob), size: `${cv.width}×${cv.height}`, file: new File([blob], name, { type: 'image/jpeg' }) };
+      if (cv !== base.canvas) cv.width = cv.height = 0;
+      return made[m];
+    }
+    let cur;
+    try { cur = await make(mode); } catch (err) { toast(err.message); onClose?.(); return; }
+    const canShare = !!(navigator.canShare && navigator.canShare({ files: [cur.file] }));
+    const body = openSheet(`<h2>이미지로 저장·공유</h2>
+      <div class="seg mini-seg exp-mode" role="radiogroup" aria-label="이미지 크기">
+        <button type="button" data-mode="page" role="radio">페이지 (5:7)</button>
+        <button type="button" data-mode="story" role="radio">인스타 스토리 (9:16)</button>
+      </div>
+      ${base.failed ? `<div class="notice warn">사진 ${base.failed}장을 불러오지 못해 빈 칸으로 그렸어요. 인터넷 연결을 확인하고 다시 해 보세요.</div>` : ''}
+      <img class="exp-preview" alt="${esc(page.title || '스크랩북 페이지')} 이미지 미리보기">
+      <small class="hint" id="expInfo"></small>
+      <div class="exp-actions">
+        ${canShare ? '<button type="button" class="btn-main" data-x="share">📤 공유하기</button>' : ''}
+        <button type="button" class="${canShare ? 'btn-sub' : 'btn-main'}" data-x="save">⬇️ 이미지 저장</button>
+      </div>
+      <small class="hint" id="expTip"></small>`, () => {
+      base.canvas.width = base.canvas.height = 0; // 폰 메모리 바로 반환
+      setTimeout(() => Object.values(made).forEach((m) => URL.revokeObjectURL(m.url)), 60e3);
+      onClose?.();
+    });
+    function show() {
+      body.querySelectorAll('[data-mode]').forEach((b) => {
+        const on = b.dataset.mode === mode;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', String(on));
+      });
+      const img = $('.exp-preview', body);
+      img.src = cur.url;
+      img.classList.toggle('story', mode === 'story');
+      $('#expInfo', body).textContent = `${cur.size} 고화질 JPG · ${fmtSize(cur.blob.size)}`;
+      $('#expTip', body).textContent = mode === 'story'
+        ? '인스타그램 앱 → 스토리 → 사진에서 이 이미지를 고르면 화면에 꽉 차게 올라가요.'
+        : (canShare ? '아이폰은 공유 창에서 ‘이미지 저장’을 누르면 사진 앱에 들어가요.' : '');
+    }
+    show();
+    body.onclick = async (ev) => {
+      const m = ev.target.closest('[data-mode]')?.dataset.mode;
+      if (m && m !== mode) {
+        mode = m;
+        try { cur = await make(m); } catch (err) { toast(err.message); return; }
+        if (body.isConnected) show();
+        return;
+      }
+      const x = ev.target.closest('[data-x]')?.dataset.x;
+      if (x === 'share') {
+        try { await navigator.share({ files: [cur.file], title: page.title || '여행 스크랩북' }); } catch (err) {
+          if (err?.name !== 'AbortError') toast('공유하지 못했어요. ‘이미지 저장’을 눌러 주세요');
+        }
+      } else if (x === 'save') {
+        const a = document.createElement('a');
+        a.href = cur.url;
+        a.download = cur.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        toast('이미지를 저장했어요');
+      }
+    };
+  }
+
+  // =====================================================================
+  // 스토리 보기 (인스타그램 스토리처럼 한 장씩)
+  // - 위쪽 진행 막대, 오른쪽 탭 = 다음 / 왼쪽 탭 = 이전, 5초마다 자동으로 넘김
+  // - 꾹 누르고 있으면 멈춤, 아래로 쓸어내리면 닫기, 📤 로 지금 페이지를 스토리 크기로 공유
+  // - 키보드: ← → 넘기기, 스페이스 멈춤, Esc 닫기
+  // =====================================================================
+  const STORY_MS = 5000;
+  let ST = null;
+
+  function openStory(start = 0) {
+    if (!S.pages.length) return;
+    const box = $('#sbStory');
+    ST = { i: start, elapsed: 0, last: performance.now(), paused: false, raf: 0, down: null, holdTimer: 0, held: false, sheet: false };
+    box.innerHTML = `
+      <div class="st-bars" aria-hidden="true">${S.pages.map(() => '<i><b></b></i>').join('')}</div>
+      <div class="st-head">
+        <div class="st-title"><b></b><small aria-live="polite"></small></div>
+        <button type="button" class="st-btn" data-st="pause" aria-label="멈춤">❚❚</button>
+        <button type="button" class="st-btn" data-st="share" aria-label="이 페이지를 스토리 이미지로 공유">📤</button>
+        <button type="button" class="st-btn" data-st="close" aria-label="닫기">✕</button>
+      </div>
+      <div class="st-stage">
+        <div class="st-wrap"></div>
+        <button type="button" class="st-zone prev" data-st="prev" aria-label="이전 페이지"></button>
+        <button type="button" class="st-zone next" data-st="next" aria-label="다음 페이지"></button>
+        <div class="st-paused" aria-hidden="true">❚❚ 멈춤</div>
+      </div>`;
+    box.classList.remove('hidden');
+    document.body.classList.add('sb-open');
+    showStory(start);
+    ST.raf = requestAnimationFrame(storyTick);
+    box.focus({ preventScroll: true });
+  }
+
+  function showStory(i) {
+    ST.i = i;
+    ST.elapsed = 0;
+    const box = $('#sbStory');
+    const p = S.pages[i];
+    const els = S.els.get(p.id) || [];
+    $('.st-title b', box).textContent = trip()?.title || '';
+    $('.st-title small', box).textContent = `${pageSubtitle(p) || `${i + 1}쪽`} · ${i + 1}/${S.pages.length}`;
+    $('.st-wrap', box).innerHTML = canvasHtml(p, els, photoIndex(), false).replace(/ loading="lazy"/g, '');
+    fitStory();
+    box.querySelectorAll('.st-bars b').forEach((b, k) => { b.style.width = k < i ? '100%' : '0%'; });
+    // 다음 페이지 사진을 미리 받아 두기
+    const nx = S.pages[i + 1];
+    if (nx) {
+      const ph = photoIndex();
+      (S.els.get(nx.id) || []).forEach((e) => { const src = srcOf(e, ph, false); if (src) { const im = new Image(); im.src = src; } });
+    }
+  }
+
+  function fitStory() {
+    const box = $('#sbStory');
+    const stage = $('.st-stage', box);
+    const wrap = $('.st-wrap', box);
+    if (!stage || !wrap) return;
+    const s = Math.min((stage.clientWidth - 16) / CW, (stage.clientHeight - 16) / CH);
+    wrap.style.width = `${CW * s}px`;
+    wrap.style.height = `${CH * s}px`;
+    const cv = $('.sb-canvas', wrap);
+    if (cv) cv.style.transform = `scale(${s})`;
+  }
+
+  function setPaused(v) {
+    ST.paused = v;
+    const box = $('#sbStory');
+    box.classList.toggle('paused', v);
+    const b = $('[data-st=pause]', box);
+    if (b) { b.textContent = v ? '▶' : '❚❚'; b.setAttribute('aria-label', v ? '이어서 보기' : '멈춤'); }
+  }
+
+  function storyTick(now) {
+    if (!ST) return;
+    const dt = now - ST.last;
+    ST.last = now;
+    if (!ST.paused && !ST.held && !ST.sheet && !document.hidden) {
+      ST.elapsed += dt;
+      if (ST.elapsed >= STORY_MS) { storyNext(); if (!ST) return; }
+    }
+    const bar = $(`#sbStory .st-bars i:nth-child(${ST.i + 1}) b`);
+    if (bar) bar.style.width = `${Math.min(100, (ST.elapsed / STORY_MS) * 100)}%`;
+    ST.raf = requestAnimationFrame(storyTick);
+  }
+  function storyNext() { if (ST.i < S.pages.length - 1) showStory(ST.i + 1); else closeStory(); }
+  function storyPrev() { if (ST.i > 0) showStory(ST.i - 1); else ST.elapsed = 0; }
+
+  function closeStory() {
+    if (!ST) return;
+    cancelAnimationFrame(ST.raf);
+    clearTimeout(ST.holdTimer);
+    ST = null;
+    const box = $('#sbStory');
+    box.classList.add('hidden');
+    box.classList.remove('paused');
+    box.innerHTML = '';
+    if (!ED) document.body.classList.remove('sb-open');
+  }
+
+  function storyShare() {
+    const p = S.pages[ST.i];
+    ST.sheet = true;
+    exportPage(p, S.els.get(p.id) || [], p.background, 'story', () => { if (ST) { ST.sheet = false; ST.last = performance.now(); } });
+  }
+
+  function bindStory() {
+    const box = $('#sbStory');
+    // 탭으로 넘기기 · 꾹 눌러 멈춤 · 아래로 쓸어 닫기 (마우스·터치 공통)
+    box.addEventListener('pointerdown', (ev) => {
+      if (!ST || !ev.target.closest('.st-stage')) return;
+      ST.down = { x: ev.clientX, y: ev.clientY };
+      ST.held = false;
+      clearTimeout(ST.holdTimer);
+      ST.holdTimer = setTimeout(() => { if (ST?.down) { ST.held = true; box.classList.add('paused'); } }, 220);
+    });
+    box.addEventListener('pointerup', (ev) => {
+      if (!ST || !ST.down) return;
+      clearTimeout(ST.holdTimer);
+      const dx = ev.clientX - ST.down.x;
+      const dy = ev.clientY - ST.down.y;
+      const wasHeld = ST.held;
+      ST.down = null;
+      ST.held = false;
+      if (!ST.paused) box.classList.remove('paused');
+      if (dy > 100 && Math.abs(dy) > Math.abs(dx)) { closeStory(); return; } // 아래로 쓸어내림
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) { if (dx < 0) storyNext(); else storyPrev(); return; } // 옆으로 밀기
+      if (wasHeld) return; // 꾹 눌렀다 떼면 이어서 보기만
+      const r = $('.st-stage', box).getBoundingClientRect();
+      if (ev.clientX - r.left < r.width / 3) storyPrev(); else storyNext();
+    });
+    box.addEventListener('pointercancel', () => { if (ST) { clearTimeout(ST.holdTimer); ST.down = null; ST.held = false; if (!ST.paused) box.classList.remove('paused'); } });
+    box.addEventListener('click', (ev) => {
+      if (!ST) return;
+      const a = ev.target.closest('[data-st]')?.dataset.st;
+      if (a === 'close') closeStory();
+      else if (a === 'share') storyShare();
+      else if (a === 'pause') setPaused(!ST.paused);
+      // 넘기기 영역은 키보드(Enter)로 누를 때만 (손가락·마우스 탭은 위 pointerup 에서 처리)
+      else if (a === 'next' && ev.detail === 0) storyNext();
+      else if (a === 'prev' && ev.detail === 0) storyPrev();
+    });
+    box.addEventListener('keydown', (ev) => {
+      if (!ST || ST.sheet) return;
+      if (ev.key === 'ArrowRight') { ev.preventDefault(); storyNext(); } else if (ev.key === 'ArrowLeft') { ev.preventDefault(); storyPrev(); } else if (ev.key === 'Escape') closeStory();
+      else if (ev.key === ' ' && !ev.target.closest('button')) { ev.preventDefault(); setPaused(!ST.paused); }
+    });
+    window.addEventListener('resize', () => { if (ST) fitStory(); });
+  }
+
+  // =====================================================================
   // 편집기
   // =====================================================================
   let ED = null; // { page, els, sel, hist, dirty, saving, scale, uploaded:Set, title, bg }
@@ -303,6 +803,7 @@
         <button class="icon-btn" data-ed="close" aria-label="닫기">←</button>
         <input class="sb-title" maxlength="40" value="${esc(ED.title)}" aria-label="페이지 제목">
         <span class="sb-status" aria-live="polite"></span>
+        <button class="icon-btn" data-ed="export" aria-label="이미지로 저장·공유">📤</button>
         <button class="icon-btn" data-ed="undo" aria-label="되돌리기">↶</button>
         <button class="sb-save" data-ed="save">저장</button>
       </div>
@@ -784,6 +1285,10 @@
       const ed = ev.target.closest('[data-ed]')?.dataset.ed;
       if (ed === 'close') return closeEditor();
       if (ed === 'undo') return undo();
+      if (ed === 'export') { // 화면에 보이는 그대로 (저장 전 편집도 포함)
+        ED.title = $('#sbEditor .sb-title').value.trim() || ED.page.title;
+        return exportPage({ ...ED.page, title: ED.title }, ED.els, ED.bg);
+      }
       if (ed === 'save') return save();
       const add = ev.target.closest('[data-add]')?.dataset.add;
       if (add === 'photo') return pickPhotos();
@@ -804,6 +1309,7 @@
   // ---------- 연결 ----------
   bind();
   bindEditor();
+  bindStory();
   window.addEventListener('travel:view', (e) => { if (e.detail === 'scrap') load(); });
   window.addEventListener('travel:refresh', () => { if (state.view === 'scrap' && !ED) load(true); else if (state.view !== 'scrap') S.loadedFor = null; });
 })();

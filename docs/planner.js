@@ -242,7 +242,7 @@
         title: p.title,
       }).addTo(dayMap));
       if (pts.length > 1) drawRoute(pts.map((p) => [p.lat, p.lng]), dayMap);
-      dayMap.fitBounds(pts.map((p) => [p.lat, p.lng]), { padding: [30, 30], maxZoom: 15 });
+      dayMap.fitBounds(pts.map((p) => [p.lat, p.lng]), { padding: [30, 30], maxZoom: 15, animate: false });
     }, 30);
   }
 

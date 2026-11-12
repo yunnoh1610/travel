@@ -10,7 +10,7 @@
     const out = html
       .replace('<script src="config.js"><\/script>', '')
       .replace(/(src|href)="(?!https?:)([^"]+\.(?:js|css))"/g, `$1="$2?v=${v}"`)
-      .replace('<head>', '<head><base href="/docs/">')
+      .replace('<head>', '<head><base href="/docs/"><script>window.__bootErrs=[];addEventListener("error",function(e){__bootErrs.push(String(e.error&&e.error.stack||e.message).slice(0,1200))});<\/script>')
       .replace(/<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase[^>]*><\/script>/, `<script src="/tests/browser/mock-supabase.js?v=${v}"><\/script>`);
     document.open();
     document.write(out);
