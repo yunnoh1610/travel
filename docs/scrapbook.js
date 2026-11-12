@@ -43,7 +43,7 @@
   const COLORS = ['#2d2a26', '#6E5FAE', '#c2410c', '#1f5378', '#0f766e', '#ffffff'];
   const MAX_HISTORY = 40;
 
-  const S = { tripId: null, loadedFor: null, loading: false, error: null, pages: [], allPages: [], books: [], bookId: null, els: new Map() };
+  const S = { tripId: null, loadedFor: null, loading: false, error: null, pages: [], allPages: [], books: [], bookId: null, inAlbum: false, els: new Map() };
   const shared = () => window.PlannerShared;
   const root = () => $('#scrapbook');
   const trip = () => state.trips.find((t) => t.id === S.tripId);
@@ -73,6 +73,7 @@
   // ---------- 불러오기 ----------
   async function load(force = false) {
     const id = state.filter === 'all' ? null : state.filter;
+    if (id !== S.tripId) S.inAlbum = false;
     S.tripId = id;
     if (!id) { render(); return; }
     if (!force && S.loadedFor === id) { render(); return; }
@@ -126,7 +127,7 @@
     </div>`;
   }
   function openBookForm(b) {
-    const body = openSheet(`<h2>${b ? '스크랩북 이름 바꾸기' : '새 스크랩북'}</h2>
+    const body = openSheet(`<h2>${b ? '앨범 이름 바꾸기' : '새 앨범 만들기'}</h2>
       <form id="bkForm" autocomplete="off">
         <label class="field"><span>이름 <small>40자</small></span><input name="title" maxlength="40" required value="${esc(b?.title || '')}" placeholder="예: 맛집 앨범, 둘째 날, 가족 사진"></label>
         <button class="primary" type="submit">${b ? '저장' : '만들기'}</button>
@@ -148,10 +149,11 @@
           const order = S.books.reduce((m, x) => Math.max(m, x.sort_order), 0) + 1;
           const [nb] = await pq(sb.from('scrapbooks').insert({ trip_id: S.tripId, title, sort_order: order }).select());
           try { localStorage.setItem(bookKey(), String(nb.id)); } catch { /* 저장 불가 */ }
+          S.inAlbum = true;
         }
         closeSheet();
         await load(true);
-        toast(b ? '이름을 바꿨어요' : `'${title}' 스크랩북을 만들었어요`);
+        toast(b ? '이름을 바꿨어요' : `'${title}' 앨범을 만들었어요`);
       } catch (err) { toast(err.message === 'NEEDS_MIGRATION' ? 'DB 설정(migrate-009)이 먼저 필요해요' : err.message); btn.disabled = false; }
     };
   }
@@ -161,13 +163,13 @@
     const body = openSheet(`<h2>📔 ${esc(b.title)}</h2>
       <div class="choice-list">
         <button class="choice" data-bm="rename"><span class="ic">✏️</span><span><b>이름 바꾸기</b></span></button>
-        <button class="choice" data-bm="del"><span class="ic">🗑</span><span><b style="color:var(--danger)">스크랩북 삭제</b><small>안의 페이지 ${S.pages.length}장도 함께 지워져요. 원래 사진 기록은 그대로예요</small></span></button>
+        <button class="choice" data-bm="del"><span class="ic">🗑</span><span><b style="color:var(--danger)">앨범 삭제</b><small>안의 페이지 ${S.pages.length}장도 함께 지워져요. 원래 사진 기록은 그대로예요</small></span></button>
       </div>`);
     body.onclick = async (ev) => {
       const a = ev.target.closest('[data-bm]')?.dataset.bm;
       if (a === 'rename') openBookForm(b);
       if (a !== 'del') return;
-      if (!confirm(`'${b.title}' 스크랩북과 페이지 ${S.pages.length}장을 삭제할까요? 되돌릴 수 없어요.`)) return;
+      if (!confirm(`'${b.title}' 앨범과 페이지 ${S.pages.length}장을 삭제할까요? 되돌릴 수 없어요.`)) return;
       const ids = new Set(S.pages.map((p) => p.id));
       const assets = S.pages.flatMap((p) => (S.els.get(p.id) || []).map((e) => e.assetPath)).filter(Boolean);
       try {
@@ -177,9 +179,10 @@
         await removeFiles(assets.filter((a2) => !used.has(a2))).catch(() => {});
         ids.forEach((id) => localStorage.removeItem(`sbDraft:${id}`));
         localStorage.removeItem(bookKey());
+        S.inAlbum = false;
         closeSheet();
         await load(true);
-        toast('스크랩북을 삭제했어요');
+        toast('앨범을 삭제했어요');
       } catch (err) { toast(err.message); }
     };
   }
@@ -247,24 +250,52 @@
   }
 
   // ---------- 페이지 목록 ----------
+  // 앨범 갤러리를 보여 줄지: 여러 앨범(009)이 있고 아직 앨범 안에 들어가지 않았을 때
+  const galleryMode = () => state.v009 && !S.inAlbum;
+  const lastEdited = (pages) => pages.reduce((m, p) => (String(p.updated_at || p.created_at || '') > m ? String(p.updated_at || p.created_at) : m), '');
   function render() {
     const r = root();
     if (!r || state.view !== 'scrap') return;
+    window.updateFab?.();
     if (!S.tripId) { r.innerHTML = shared().pickTripHtml('스크랩북을'); return; }
     const t = trip();
     if (!t) { r.innerHTML = '<div class="empty">여행을 찾을 수 없어요</div>'; return; }
-    const head = `<div class="section-head"><h2>📔 ${esc(t.title)}</h2>
-      <div class="sb-head-btns">${S.pages.length ? '<button class="chip-btn" data-act="story" aria-label="스토리로 보기">▶ 스토리</button>' : ''}<button class="chip-btn" data-act="new-page">＋ 새 페이지</button></div></div>
-      ${typeof roBanner === 'function' ? roBanner(t) : ''}
-      ${S.loading || S.error ? '' : booksHtml()}`;
-    if (S.loading) { r.innerHTML = `${head}<div class="empty"><div class="spinner"></div>불러오는 중…</div>`; return; }
+    const ro = typeof roBanner === 'function' ? roBanner(t) : '';
+    if (S.loading) { r.innerHTML = `<div class="section-head"><h2>📔 앨범</h2></div><div class="empty"><div class="spinner"></div>불러오는 중…</div>`; return; }
     if (S.error) {
-      r.innerHTML = head + (S.error.code === 'NEEDS_MIGRATION'
+      r.innerHTML = '<div class="section-head"><h2>📔 앨범</h2></div>' + (S.error.code === 'NEEDS_MIGRATION'
         ? '<div class="notice warn"><b>스크랩북을 쓰려면 DB 설정이 하나 더 필요해요.</b><br>Supabase SQL Editor에서 <code>supabase/migrate-004-planner-scrapbook.sql</code>을 실행해 주세요.</div>'
         : `<div class="notice error">${esc(S.error.message)}<br><button class="btn" data-act="reload" style="margin-top:8px">다시 불러오기</button></div>`);
       return;
     }
     const photos = photoIndex();
+    if (galleryMode()) {
+      // ---- 앨범 갤러리: 표지(첫 페이지) · 이름 · 페이지 수 · 마지막 편집일 ----
+      const albums = S.books.map((b) => ({ b, pages: S.allPages.filter((p) => p.scrapbook_id === b.id) }));
+      r.innerHTML = `<div class="section-head"><h2>📔 앨범</h2><small class="muted">${esc(t.title)} · ${albums.length}권</small></div>${ro}
+        ${albums.length ? `<div class="sb-pages sb-albums">${albums.map(({ b, pages }) => {
+          const cover = pages[0];
+          const last = lastEdited(pages);
+          return `<div class="sb-page-card sb-album" data-album="${b.id}">
+            <button class="sb-thumb" data-album-open aria-label="${esc(b.title)} 앨범 열기">${cover ? canvasHtml(cover, S.els.get(cover.id) || [], photos, true)
+              : '<div class="sb-album-empty">📔<small>빈 앨범</small></div>'}</button>
+            <div class="sb-page-meta"><b>${esc(b.title)}</b><small class="muted">페이지 ${pages.length}장${last ? ` · ${shared().short(last.slice(0, 10))} 편집` : ''}</small></div>
+          </div>`;
+        }).join('')}</div>`
+        : `<div class="empty"><div class="big">📔</div><b>아직 앨범이 없어요</b><br><small>여행 사진과 기록으로 하루 한 장씩 꾸미는 앨범을 만들어 보세요</small>
+            ${typeof canEdit !== 'function' || canEdit(t) ? '<br><button type="button" class="primary small-cta" data-act="new-book">＋ 앨범 만들기</button>' : ''}</div>`}`;
+      hydrate(r, albums.flatMap(({ pages }) => (pages[0] ? S.els.get(pages[0].id) || [] : [])));
+      fitThumbs();
+      return;
+    }
+    // ---- 앨범 안: 페이지 썸네일 그리드 ----
+    const bk = book();
+    const head = `<div class="section-head sb-album-head">
+        ${state.v009 ? '<button type="button" class="icon-btn ghost" data-act="albums" aria-label="앨범 목록으로">←</button>' : ''}
+        <h2>📔 ${esc(bk?.title || t.title)}</h2>
+        <div class="sb-head-btns">${S.pages.length ? '<button class="chip-btn" data-act="story" aria-label="스토리로 보기">▶ 스토리</button>' : ''}
+          ${bk ? '<button type="button" class="icon-btn ghost" data-act="book-menu" aria-label="앨범 이름 바꾸기·삭제">⋯</button>' : ''}</div></div>
+      ${ro}`;
     r.innerHTML = head + (S.pages.length ? `<div class="sb-pages">${S.pages.map((p, i) => `
       <div class="sb-page-card" data-page="${p.id}">
         <button class="sb-thumb" data-view aria-label="${esc(p.title || `${i + 1}쪽`)} 보기">${canvasHtml(p, S.els.get(p.id) || [], photos, true)}</button>
@@ -274,10 +305,19 @@
           <button class="icon-btn" data-pmenu aria-label="페이지 메뉴" aria-haspopup="dialog">⋯</button>
         </div>
       </div>`).join('')}</div>`
-      : `<div class="empty"><div class="big">📔</div>${book() ? `'${esc(book().title)}'에 아직 페이지가 없어요` : '아직 스크랩북 페이지가 없어요'}<br><small>여행 사진으로 하루 한 장씩 꾸며 보세요</small></div>`);
-    hydrate(r, [...S.els.values()].flat());
+      : `<div class="empty"><div class="big">📔</div><b>${bk ? `'${esc(bk.title)}'에 아직 페이지가 없어요` : '아직 스크랩북 페이지가 없어요'}</b><br><small>여행 사진으로 하루 한 장씩 꾸며 보세요</small>
+          ${typeof canEdit !== 'function' || canEdit(t) ? '<br><button type="button" class="primary small-cta" data-act="new-page">＋ 페이지 추가</button>' : ''}</div>`);
+    hydrate(r, S.pages.flatMap((p) => S.els.get(p.id) || []));
     fitThumbs();
   }
+  // 플로팅 + 버튼 (app.js): 갤러리에서는 앨범 만들기, 앨범 안에서는 페이지 추가
+  window.Scrapbook = {
+    fabLabel: () => (S.tripId && galleryMode() ? '앨범 만들기' : '페이지 추가'),
+    fab: () => {
+      if (!S.tripId) return toast('위쪽에서 여행을 먼저 골라 주세요');
+      if (galleryMode()) openBookForm(null); else openNewPage();
+    },
+  };
   // 미리보기 크기에 맞춰 1000×1400 캔버스를 줄임
   function fitThumbs() {
     const grid = $('.sb-pages', root());
@@ -296,6 +336,9 @@
       if (act === 'book-menu') return bookMenu();
       const bk = e.target.closest('[data-book]');
       if (bk) { pickBook(Number(bk.dataset.book)); render(); return; }
+      const al = e.target.closest('[data-album]');
+      if (al) { pickBook(Number(al.dataset.album)); S.inAlbum = true; render(); window.scrollTo?.(0, 0); return; }
+      if (act === 'albums') { S.inAlbum = false; render(); return; }
       if (act === 'story') return openStory(0);
       if (act === 'reload') return load(true);
       if (act === 'new-trip') return openTripForm();

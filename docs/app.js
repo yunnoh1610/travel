@@ -521,6 +521,14 @@ async function afterPlanChange() {
   window.dispatchEvent(new CustomEvent('travel:plans'));
 }
 /** ✓ 방문 완료: 기록을 남기며 완료하거나, 기록 없이 완료만 */
+/** 일정의 장소·날짜·시간을 채워서 기록 쓰기 열기 (저장하면 그 일정은 방문 완료) */
+function recordFromPlan(it) {
+  openAddPlace({
+    tripId: it.trip_id, name: it.place_name || it.title, lat: it.lat, lng: it.lng, date: it.day_date,
+    time: it.day_date === today() ? timeOfMs(Date.now()) : hhmm(it.start_time),
+    planId: it.id, category: PLAN_TO_CAT[it.item_type],
+  });
+}
 function openPlanDone(it) {
   const recs = recordsOfPlan(it.id);
   const body = openSheet(`<h2>✓ 방문 완료</h2>
@@ -532,14 +540,8 @@ function openPlanDone(it) {
     </div>`);
   body.onclick = async (e) => {
     const k = e.target.closest('[data-done]')?.dataset.done;
-    if (k === 'record') {
-      const now = new Date();
-      openAddPlace({
-        tripId: it.trip_id, name: it.place_name || it.title, lat: it.lat, lng: it.lng, date: it.day_date,
-        time: it.day_date === today() ? timeOfMs(now.getTime()) : hhmm(it.start_time),
-        planId: it.id, category: PLAN_TO_CAT[it.item_type],
-      });
-    } else if (k === 'only') {
+    if (k === 'record') recordFromPlan(it);
+    else if (k === 'only') {
       try {
         await setPlanStatus(it.id, 'DONE');
         closeSheet();
@@ -813,7 +815,7 @@ function candChips(cands, prefix = '', chosen = '') {
 }
 
 // ---------- 상태 ----------
-const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true, mapShow: 'all', mapDay: '', favs: new Set(), jq: { text: '', fav: false, mood: '', tag: '', plans: true } };
+const state = { me: null, trips: [], places: [], plans: [], filter: 'all', view: 'map', v005: true, mapShow: 'all', mapDay: '', favs: new Set(), jq: { text: '', fav: false, mood: '', tag: '', plans: false } };
 let map;
 let markerLayer;
 
@@ -1123,20 +1125,8 @@ function renderFilter() {
     + state.trips.map((t) => `<option value="${t.id}">${kindEmoji(t.kind)} ${esc(t.title)} (${countLabel(t.place_count, t.plan_count)})</option>`).join('');
   sel.value = String(state.filter);
 }
-/**
- * 타임라인·기록장을 보다가 다른 여행을 고르면, 여행 상태에 맞는 탭을 먼저 보여 줘요
- * 계획 중(D-n) → 타임라인(일정) · 여행 중·다녀온 여행 → 기록장 (남은 일정도 기록장에 함께 보여요)
- */
-function autoTab(id) {
-  if (id === 'all' || !['timeline', 'journal'].includes(state.view)) return;
-  const st = tripStatus(tripById(id))?.key;
-  if (!st) return;
-  const want = st === 'plan' ? 'timeline' : 'journal';
-  if (want !== state.view) switchView(want);
-}
 $('#tripFilter').onchange = (e) => {
   state.filter = e.target.value === 'all' ? 'all' : Number(e.target.value);
-  autoTab(state.filter);
   refresh(true);
 };
 
@@ -1240,12 +1230,13 @@ function renderJournal() {
   if (!el) return;
   const t = state.filter !== 'all' ? state.trips.find((x) => x.id === state.filter) : null;
   const head = `<div class="section-head"><h2>📒 기록장</h2><small class="muted">${t ? esc(t.title) : '모든 여행'} · ${state.places.length}곳</small></div>${roBanner(t)}`;
-  if (!state.places.length && !pendingPlans().length) {
-    const planning = t && tripStatus(t)?.key === 'plan';
-    el.innerHTML = `${head}<div class="empty"><div class="big">${ic('🗺️')}</div>아직 기록이 없어요<br>
-      <small>${planning ? '여행을 떠나면 다녀온 곳과 사진을 여기에 남겨요. 지금은 타임라인에서 일정을 세워 보세요'
-        : '오른쪽 아래 ＋ 버튼으로 다녀온 곳과 사진을 남겨 보세요'}</small>
-      ${planning ? '<br><button type="button" class="chip-btn" data-goto="timeline" style="margin-top:12px">📅 타임라인으로</button>' : ''}</div>`;
+  if (!state.places.length) {
+    // 빈 상태: 실제 기록이 없으면 일정이 있어도 기록장은 비어 있어요 (일정은 타임라인에)
+    const n = pendingPlans().length;
+    el.innerHTML = `${head}<div class="empty"><div class="big">${ic('🗺️')}</div><b>아직 남긴 기록이 없어요</b><br>
+      <small>다녀온 곳의 사진과 한마디를 남기면 여기에 여행 일기처럼 모여요</small>
+      ${!t || canEdit(t) ? '<br><button type="button" class="primary small-cta" data-act="add-record">＋ 기록 추가</button>' : ''}
+      ${n ? `<br><button type="button" class="link" data-goto="timeline" style="margin-top:8px">📋 예정 일정 ${n}개는 타임라인에 있어요</button>` : ''}</div>`;
     return;
   }
   // 검색 칸은 그대로 두고 목록만 다시 그려요 (입력 중 커서 유지)
@@ -1267,6 +1258,25 @@ function pendingPlans() {
   if (state.filter === 'all') return [];
   return state.plans.filter((i) => i.trip_id === state.filter && planSt(i) === 'PLANNED' && !recordsOfPlan(i.id).length);
 }
+/** 기록장 카드: 사진 중심 피드 (대표 사진 · 방문일 · 장소 · 짧은 이야기 · 태그 · 즐겨찾기) */
+function feedCard(p) {
+  const th = p.photos[0]?.thumb;
+  const plan = p.plan_item_id ? state.plans.find((i) => i.id === p.plan_item_id) : null;
+  const when = `${shortDate(visitKey(p))}${p.visited_time ? ` ${hhmm(p.visited_time)}` : ''}`;
+  return `<button class="card feed-card" data-place="${p.id}">
+    ${th ? `<div class="feed-photo"><img src="${esc(th)}" alt="" loading="lazy">${p.photos.length > 1 ? `<span class="feed-n">📷 ${p.photos.length}</span>` : ''}
+      ${state.favs.has(p.id) ? '<span class="feed-fav" aria-label="즐겨찾기">★</span>' : ''}</div>` : ''}
+    <div class="feed-body">
+      <div class="feed-meta">🕒 ${when} · 📍 ${esc(p.name)}${p.lat == null ? ' (위치 없음)' : ''}${!th && state.favs.has(p.id) ? ' · <span class="fav-on">★</span>' : ''}</div>
+      <b class="feed-title">${esc(p.title || p.name)}${MOODS[p.mood] ? ` ${MOODS[p.mood][0]}` : ''}</b>
+      ${p.comment ? `<span class="comment">${esc(p.comment)}</span>` : ''}
+      ${p.memo ? `<span class="feed-memo">${esc(p.memo)}</span>` : ''}
+      ${tagsHtml(p.tags)}
+      <small class="muted">${plan ? `📋 계획: ${esc(planLabel(plan))} · ` : ''}${esc(p.author)}${state.filter === 'all' ? ` · ${esc(p.trip_title)}` : ''}${p.comment_count ? ` · 💬 ${p.comment_count}` : ''}</small>
+    </div>
+  </button>`;
+}
+const shortDate = (ymd) => { const d = new Date(`${ymd}T00:00:00`); return `${d.getMonth() + 1}/${d.getDate()} (${'일월화수목금토'[d.getDay()]})`; };
 function planCard(it) {
   const time = it.start_time ? `${hhmm(it.start_time)}${it.end_time ? `~${hhmm(it.end_time)}` : ''}` : '시간 미정';
   return `<div class="card plan-card" data-plan="${it.id}" role="button" tabindex="0" aria-label="예정 일정 ${esc(it.title)}">
@@ -1289,7 +1299,7 @@ function renderJournalChips() {
   if (q.tag && !tags.includes(q.tag)) tags.unshift(q.tag);
   const moods = Object.keys(MOODS).filter((m) => state.places.some((p) => p.mood === m));
   const plansChip = pendingPlans().length
-    ? `<button type="button" class="jr-chip ${q.plans ? 'on' : ''}" data-jf="plans" aria-pressed="${q.plans}">📋 남은 일정 ${pendingPlans().length}</button>` : '';
+    ? `<button type="button" class="jr-chip plan ${q.plans ? 'on' : ''}" data-jf="plans" aria-pressed="${q.plans}">📋 예정 일정 ${pendingPlans().length}</button>` : '';
   box.innerHTML = !state.v009 ? plansChip : `${plansChip}
     <button type="button" class="jr-chip ${q.fav ? 'on' : ''}" data-jf="fav" aria-pressed="${q.fav}">★ 즐겨찾기</button>
     ${moods.map((m) => `<button type="button" class="jr-chip ${q.mood === m ? 'on' : ''}" data-jmood="${m}" aria-pressed="${q.mood === m}">${MOODS[m][0]} ${MOODS[m][1]}</button>`).join('')}
@@ -1307,19 +1317,21 @@ function renderJournalList() {
   // 남은 일정: 즐겨찾기·기분·태그로 거를 때는 빼고, 검색어는 일정 이름·장소에도 적용
   const plans = q.plans && !q.fav && !q.mood && !q.tag
     ? pendingPlans().filter((i) => words.every((w) => [i.title, i.place_name, i.notes].filter(Boolean).join(' ').toLowerCase().includes(w))) : [];
-  if (!list.length && !plans.length) {
-    box.innerHTML = `<div class="empty small">찾는 기록이 없어요${filtered ? '<br><button type="button" class="chip-btn" data-jclear style="margin-top:10px">조건 지우기</button>' : ''}</div>`;
+  // 예정 일정은 기록과 섞지 않고 맨 위 따로 (필터를 켰을 때만)
+  const planBox = plans.length ? `<section class="jr-plans"><h3>📋 아직 기록 전인 예정 일정 <small>${plans.length}</small></h3>
+      ${plans.map(planCard).join('')}<small class="hint">✓ 기록을 누르면 장소·날짜가 채워진 기록 화면이 열려요</small></section>` : '';
+  if (!list.length) {
+    box.innerHTML = planBox + `<div class="empty small">찾는 기록이 없어요${filtered ? '<br><button type="button" class="chip-btn" data-jclear style="margin-top:10px">조건 지우기</button>' : ''}</div>`;
     return;
   }
-  const entries = list.map((p) => ({ date: visitKey(p), time: hhmm(p.visited_time), id: p.id, p }))
-    .concat(plans.map((i) => ({ date: i.day_date, time: hhmm(i.start_time), id: 1e9 + i.id, plan: i })));
+  const entries = list.map((p) => ({ date: visitKey(p), time: hhmm(p.visited_time), id: p.id, p }));
   entries.sort((a, b) => b.date.localeCompare(a.date)
     || (a.time ? 0 : 1) - (b.time ? 0 : 1) || a.time.localeCompare(b.time) || a.id - b.id);
-  let html = filtered ? `<div class="jr-count muted">${list.length}개 찾음 <button type="button" class="link" data-jclear>조건 지우기</button></div>` : '';
+  let html = planBox + (filtered ? `<div class="jr-count muted">${list.length}개 찾음 <button type="button" class="link" data-jclear>조건 지우기</button></div>` : '');
   let last = null;
   for (const x of entries) {
     if (x.date !== last) { html += `<h3 class="tl-date">${fmtDate(x.date)}</h3>`; last = x.date; }
-    html += x.plan ? planCard(x.plan) : placeCard(x.p);
+    html += feedCard(x.p);
   }
   box.innerHTML = html;
 }
@@ -1332,6 +1344,7 @@ $('#journal').onclick = (e) => {
   const q = state.jq;
   const go = e.target.closest('[data-goto]');
   if (go) { switchView(go.dataset.goto); return; }
+  if (e.target.closest('[data-act=add-record]')) { $('#fab').click(); return; }
   if (e.target.closest('[data-jclear]')) {
     Object.assign(q, { text: '', fav: false, mood: '', tag: '' });
     const inp = $('#jrSearch');
@@ -1385,41 +1398,18 @@ function tripStatus(t) {
 const statusBadge = (t) => { const st = tripStatus(t); return st ? `<span class="trip-status ${st.key}">${st.label}</span>` : ''; };
 
 // ---------- 내 여행 목록 (모든 탭 공통, 위쪽 🧳 버튼) ----------
-// ---------- 여행 바로가기: 여행마다 타임라인 · 기록장 · 스크랩북 ----------
-const GO_VIEWS = { timeline: ['📅', '타임라인'], journal: ['📒', '기록장'], scrap: ['📔', '스크랩북'] };
-function tripGoBar(t, current) {
-  const sub = { timeline: t.plan_count ? `일정 ${t.plan_count}` : '일정 세우기', journal: `기록 ${t.place_count}`, scrap: '꾸미기' };
-  return `<div class="trip-go" role="group" aria-label="${esc(t.title)} 보기">${Object.entries(GO_VIEWS).map(([v, [e, l]]) =>
-    `<button type="button" class="${v === current ? 'on' : ''}" data-go="${v}" data-go-trip="${t.id}"><b>${e} ${l}</b><small>${sub[v]}</small></button>`).join('')}</div>`;
+// ---------- 여행 선택 (모든 탭 공통) ----------
+/** 여행을 안 고른 채 타임라인·스크랩북에 들어오면 고를 여행: 여행 중 → 가장 가까운 계획 중 → 가장 최근 */
+function defaultTripId() {
+  const ts = state.trips;
+  const now = ts.find((t) => tripStatus(t)?.key === 'now');
+  if (now) return now.id;
+  const next = ts.filter((t) => tripStatus(t)?.key === 'plan').sort((x, y) => x.start_date.localeCompare(y.start_date))[0];
+  return (next || ts[0])?.id ?? 'all';
 }
-/** 바로가기를 누르면: 그 여행을 고르고 그 탭으로 */
-function goTrip(id, view) {
-  state.filter = id;
-  closeSheet();
-  switchView(view);
-  refresh(true);
-}
-document.addEventListener('click', (e) => {
-  const b = e.target.closest('[data-go][data-go-trip]');
-  if (b) { e.preventDefault(); goTrip(Number(b.dataset.goTrip), b.dataset.go); }
-});
-/** 타임라인·스크랩북에서 여행을 아직 안 골랐을 때: 탭마다 다른 안내 + 여행 카드(바로가기 포함) */
-const PICK_INTRO = {
-  timeline: ['📅 타임라인', '여행 <b>전</b>에 쓰는 곳 — 날짜별 일정·예산·준비물을 세우고 AI 일정 도우미를 써요.'],
-  scrap: ['📔 스크랩북', '여행 <b>뒤</b>에 꾸미는 곳 — 사진과 기록으로 하루 한 장씩 앨범을 만들어요.'],
-  journal: ['📒 기록장', '다녀온 곳의 사진·한마디·이야기를 모아 봐요.'],
-};
-function tripPickerHtml(view) {
-  const [title, desc] = PICK_INTRO[view] || PICK_INTRO.timeline;
-  return `<div class="section-head"><h2>${title}</h2></div>
-    <div class="pick-intro">${desc}<br><small>아래에서 여행을 고르거나, 위쪽 선택 칸에서 골라도 돼요.</small></div>
-    ${state.trips.map((t) => `<div class="card trip-card hub" data-kind="${esc(t.kind || 'trip')}">
-      <div class="hub-top">
-        ${t.cover ? `<img class="thumb" src="${esc(t.cover)}" alt="" loading="lazy">` : `<div class="thumb">${kindIcon(t.kind)}</div>`}
-        <span class="body"><b>${esc(t.title)}</b><small>${statusBadge(t)} 📅 ${fmtRange(t.start_date, t.end_date)}</small></span>
-      </div>
-      ${tripGoBar(t, view)}
-    </div>`).join('')}`;
+/** 여행이 하나도 없을 때만 쓰는 대비 화면 (여행이 있으면 자동으로 골라서 바로 내용이 보여요) */
+function tripPickerHtml() {
+  return `<div class="empty"><div class="big">${ic('📒')}</div>여행을 골라 주세요<br><small>위쪽 선택 칸에서 고를 수 있어요</small></div>`;
 }
 
 function tripsListHtml() {
@@ -1436,7 +1426,6 @@ function tripsListHtml() {
         </span>
       </button>
       <button type="button" class="icon-btn" data-manage="${t.id}" aria-label="${esc(t.title)} 멤버·수정">⋯</button>
-      ${tripGoBar(t, state.filter === t.id ? state.view : '')}
     </div>`).join('');
   return `<div class="section-head"><h2>내 여행</h2><button class="chip-btn" data-act="new-trip">＋ 새 여행</button></div>
     <div class="stats"><div><b>${state.trips.length}</b><small>여행</small></div>
@@ -1453,7 +1442,6 @@ function openTripsSheet() {
     const c = e.target.closest('[data-trip]');
     if (!c) return;
     state.filter = c.dataset.trip === 'all' ? 'all' : Number(c.dataset.trip);
-    autoTab(state.filter);
     closeSheet();
     refresh(true);
   };
@@ -1465,14 +1453,29 @@ function renderTrips() {
 }
 $('#tripsBtn').onclick = openTripsSheet;
 
+// 플로팅 + 버튼: 탭마다 하는 일과 이름이 달라요
+const FAB_LABEL = { map: '기록 추가', journal: '기록 추가', timeline: '일정 추가' };
+function updateFab() {
+  const label = state.view === 'scrap' ? (window.Scrapbook?.fabLabel?.() || '페이지 추가') : FAB_LABEL[state.view];
+  const fab = $('#fab');
+  fab.setAttribute('aria-label', label);
+  const l = $('.fab-label', fab);
+  if (l) l.textContent = label;
+}
 function switchView(view) {
   state.view = view;
+  let pick = false;
+  if (['timeline', 'scrap'].includes(view) && state.filter === 'all' && state.trips.length) {
+    state.filter = defaultTripId();
+    pick = state.filter !== 'all';
+    if (pick) { renderFilter(); applyRoleUi(); }
+  }
   for (const v of document.querySelectorAll('main > .view')) v.classList.toggle('hidden', v.id !== `view-${view}`);
   for (const b of document.querySelectorAll('.tabbar button')) b.classList.toggle('on', b.dataset.view === view);
-  // 장소 기록 버튼(＋)은 지도·기록장 화면에서만 (타임라인·스크랩북은 각자 추가 버튼)
-  $('#fab').classList.toggle('hidden', !['map', 'journal'].includes(view));
+  updateFab();
   if (view === 'map') setTimeout(() => map.invalidateSize(), 0);
   window.dispatchEvent(new CustomEvent('travel:view', { detail: view }));
+  if (pick) refresh(); // 고른 여행으로 지도·기록장 자료도 맞춤
 }
 document.querySelector('.tabbar').onclick = (e) => {
   const b = e.target.closest('[data-view]');
@@ -1931,6 +1934,8 @@ async function runBackup(kind, sheet) {
 
 // ---------- 장소 기록하기 ----------
 $('#fab').onclick = () => {
+  if (state.view === 'timeline' && state.filter !== 'all') { window.Planner?.addManual(state.filter); return; }
+  if (state.view === 'scrap' && window.Scrapbook) { window.Scrapbook.fab(); return; }
   if (!state.trips.length) {
     toast('먼저 여행을 만들어 주세요');
     openTripForm();

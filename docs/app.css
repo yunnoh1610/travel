@@ -440,3 +440,28 @@ body.read-only [data-m="edit"], body.read-only [data-m="import"] { display: none
 .hub-top .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .pick-intro { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; font-size: 14px; margin: -4px 0 14px; color: var(--text); }
 .pick-intro small { color: var(--muted); }
+
+/* ===== UI/UX 개선 제안서 반영 ===== */
+/* 화면 아래 내용이 하단 탭·+ 버튼에 가리지 않게 */
+.pad { padding-bottom: calc(132px + var(--safe-b)); }
+/* + 버튼 이름표 (탭마다 바뀜) */
+.fab { overflow: visible; }
+.fab-label { position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); white-space: nowrap;
+  background: var(--accent); color: #fff; font-size: 13px; font-weight: 800; padding: 7px 12px; border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.15); pointer-events: none; font-style: normal; line-height: 1.2; }
+.small-cta { width: auto; display: inline-block; margin-top: 14px; padding: 12px 22px; border-radius: 999px; }
+/* 기록장: 사진 중심 피드 */
+.card.feed-card { display: block; padding: 0; overflow: hidden; }
+.feed-photo { position: relative; aspect-ratio: 16 / 10; background: var(--line); }
+.feed-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.feed-n { position: absolute; right: 10px; bottom: 10px; background: rgba(0,0,0,.55); color: #fff; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+.feed-fav { position: absolute; left: 10px; top: 10px; background: rgba(255,255,255,.92); color: #f2a900; font-size: 16px; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.feed-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 4px; }
+.feed-meta { font-size: 12.5px; color: var(--muted); }
+.feed-title { font-size: 16.5px; }
+.feed-memo { font-size: 13.5px; color: var(--text); opacity: .85; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
+/* 예정 일정은 기록과 따로 */
+.jr-plans { border: 1.5px dashed var(--accent); border-radius: var(--radius); padding: 12px; margin-bottom: 16px; background: var(--accent-soft, #f3f0fb); }
+.jr-plans h3 { margin: 0 0 10px; font-size: 14.5px; color: var(--accent); }
+.jr-plans .card.plan-card { background: var(--card); opacity: 1; margin-bottom: 8px; }
+.jr-chip.plan { border-style: dashed; }

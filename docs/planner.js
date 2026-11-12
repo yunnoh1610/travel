@@ -230,6 +230,7 @@
         ${who.length ? `<div class="pi-who">👤 ${who.map(esc).join(', ')}</div>` : ''}
         ${it.notes ? `<div class="pi-notes">${esc(it.notes)}</div>` : ''}
         ${recs.map((p) => `<button type="button" class="pi-rec" data-rec="${p.id}">📷 실제 ${p.visited_time ? `${hhmm(p.visited_time)} 방문` : '방문'} · ${esc(p.name)} <span aria-hidden="true">›</span></button>`).join('')}
+        ${st === 'DONE' && !recs.length && canEdit(P.tripId) ? '<button type="button" class="pi-rec add" data-record>📷 실제 기록 남기기</button>' : ''}
       </div>
       <div class="pi-tools ${state.v008 ? 'four' : ''}">
         ${state.v008 ? `<button class="icon-btn done-btn" data-done ${st === 'PLANNED' ? '' : 'disabled'} aria-label="방문 완료" title="방문 완료">✓</button>` : ''}
@@ -349,6 +350,7 @@
       if (item && e.target.closest('[data-done]')) { openPlanDone(P.items.find((x) => x.id === Number(item.dataset.item))); return; }
       const rec = e.target.closest('[data-rec]');
       if (rec) { openPlace(Number(rec.dataset.rec)); return; }
+      if (item && e.target.closest('[data-record]')) { recordFromPlan(P.items.find((x) => x.id === Number(item.dataset.item))); return; }
       const exp = e.target.closest('[data-exp]');
       if (exp) { openExpenseForm(P.expenses.find((x) => x.id === Number(exp.dataset.exp))); return; }
       const ckdel = e.target.closest('[data-ckdel]');
