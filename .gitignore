@@ -5,3 +5,4 @@ data/
 manual/
 *.pdf
 design/
+supabase/.temp/

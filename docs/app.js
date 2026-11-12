@@ -867,7 +867,8 @@ function renderTrips() {
 }
 $('#tripList').onclick = (e) => {
   const c = e.target.closest('[data-trip]');
-  if (c) openTrip(Number(c.dataset.trip));
+  // 기록장을 누르면 그 기록장의 일정·예산·준비물 화면으로 (멤버·초대는 그 화면 위쪽 버튼)
+  if (c) { state.filter = Number(c.dataset.trip); refresh(true); }
 };
 $('#newTripBtn').onclick = () => openTripForm();
 

@@ -101,13 +101,22 @@
   // ---------- 그리기 ----------
   function render() {
     const root = el();
-    if (!root || state.view !== 'plan') return;
+    if (!root || state.view !== 'trips') return;
     dayMap?.remove();
     dayMap = null;
-    if (!P.tripId) { root.innerHTML = pickTripHtml('일정을'); return; }
+    // 기록장 탭: 고른 기록장이 없으면 목록(app.js), 있으면 이 일정 화면. ＋(장소 기록) 버튼은 목록에서만
+    const show = !!P.tripId;
+    $('#tripsHome').classList.toggle('hidden', show);
+    root.classList.toggle('hidden', !show);
+    $('#fab').classList.toggle('hidden', show);
+    if (!show) return;
     const t = trip();
     if (!t) { root.innerHTML = '<div class="empty">기록장을 찾을 수 없어요</div>'; return; }
-    const head = `<div class="plan-head">
+    const head = `<div class="plan-nav">
+        <button type="button" class="link" data-act="back">← 전체 기록장</button>
+        <button type="button" class="chip-btn" data-act="members">👥 멤버·초대</button>
+      </div>
+      <div class="plan-head">
         <h2>${kindIcon(t.kind)} ${esc(t.title)}</h2>
         <small class="muted">📅 ${fmtRange(t.start_date, t.end_date)} · 👥 ${t.members.length}명</small>
       </div>
@@ -319,6 +328,8 @@
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act === 'new-trip') openTripForm();
       else if (act === 'edit-trip') openTripForm(trip());
+      else if (act === 'back') { state.filter = 'all'; refresh(true); }
+      else if (act === 'members') openTrip(P.tripId);
       else if (act === 'reload') reload();
       else if (act === 'add-item') openItemForm(null);
       else if (act === 'ai-generate') openGenerate();
@@ -812,12 +823,12 @@
 
   // ---------- 연결 ----------
   bind();
-  window.addEventListener('travel:view', (e) => { if (e.detail === 'plan') load(); else { dayMap?.remove(); dayMap = null; } });
+  window.addEventListener('travel:view', (e) => { if (e.detail === 'trips') load(); else { dayMap?.remove(); dayMap = null; } });
   window.addEventListener('travel:refresh', () => {
     // 기록장을 바꾸거나 기록장 정보(날짜)를 고친 뒤
-    if (state.view === 'plan') load(true);
+    if (state.view === 'trips') load(true);
     else P.loadedFor = null;
   });
-  window.addEventListener('online', () => { if (state.view === 'plan') render(); });
-  window.addEventListener('offline', () => { if (state.view === 'plan') render(); });
+  window.addEventListener('online', () => { if (state.view === 'trips') render(); });
+  window.addEventListener('offline', () => { if (state.view === 'trips') render(); });
 })();
