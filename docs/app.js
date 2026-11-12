@@ -34,9 +34,10 @@ const THEMES = {
     name: '보라 글래스', icon: '💜', desc: '보라·초록 포인트, 유리처럼 맑은 아이콘', color: '#7203FF', route: '#7203FF',
     swatch: ['#7203FF', '#0BCE83', '#D6B6FF', '#F6F5F5'],
   },
-  sketch: { name: '청량 스케치북', icon: '✏️', desc: '하늘색·민트, 모눈 종이와 손글씨', color: '#2aa7d9', route: '#1479a8', swatch: ['#2aa7d9', '#5fd3bf', '#fff1a1', '#fbfaf4'] },
+  sketch: { hidden: true, name: '청량 스케치북', icon: '✏️', desc: '하늘색·민트, 모눈 종이와 손글씨', color: '#2aa7d9', route: '#1479a8', swatch: ['#2aa7d9', '#5fd3bf', '#fff1a1', '#fbfaf4'] },
   passport: {
     // 청량한 빈티지 트래블 스크랩북 (예전 이름: 여권 스크랩북 — 저장된 설정을 그대로 쓰려고 키는 passport 유지)
+    hidden: true,
     name: '트래블 스크랩북', icon: '✉️', desc: '청량한 빈티지 · 우표·기차표·항공 우편', color: '#2f6f9f', route: '#1f5378',
     swatch: ['#2f6f9f', '#4a9fd8', '#7fcfc2', '#ef7f68'],
     // 지도 경로: 흰 테두리 위 남색 점선
@@ -45,11 +46,13 @@ const THEMES = {
       { color: '#1f5378', weight: 2.8, opacity: 1, dashArray: '8 7', lineCap: 'round' },
     ],
   },
-  basic: { name: '기본', icon: '🌿', desc: '차분한 초록, 깔끔한 글꼴', color: '#0f766e', route: '#0f766e', swatch: ['#0f766e', '#e6f4f1', '#ffffff', '#f6f7f5'] },
+  basic: { hidden: true, name: '기본', icon: '🌿', desc: '차분한 초록, 깔끔한 글꼴', color: '#0f766e', route: '#0f766e', swatch: ['#0f766e', '#e6f4f1', '#ffffff', '#f6f7f5'] },
 };
 const THEME_KEY = 'travelTheme';
 const DEFAULT_THEME = 'glass'; // 테마를 고른 적 없는 사람에게 보이는 테마 (index.html 과 같게)
-let currentTheme = THEMES[document.documentElement.dataset.theme] ? document.documentElement.dataset.theme : DEFAULT_THEME;
+const usableTheme = (t) => !!THEMES[t] && !THEMES[t].hidden;
+const VISIBLE_THEMES = Object.keys(THEMES).filter(usableTheme);
+let currentTheme = usableTheme(document.documentElement.dataset.theme) ? document.documentElement.dataset.theme : DEFAULT_THEME;
 const routeColor = () => (THEMES[currentTheme] || THEMES.sketch).route;
 // 테마에 맞는 경로선 그리기 (여러 겹이면 겹쳐서)
 function drawRoute(points, layer) {
@@ -58,7 +61,7 @@ function drawRoute(points, layer) {
   for (const style of lines) L.polyline(points, { ...style, interactive: false }).addTo(layer);
 }
 function applyTheme(t) {
-  if (!THEMES[t]) t = DEFAULT_THEME;
+  if (!usableTheme(t)) t = DEFAULT_THEME;
   currentTheme = t;
   document.documentElement.dataset.theme = t;
   document.querySelectorAll('link[id^="themeCss-"]').forEach((l) => { l.disabled = l.id !== `themeCss-${t}`; });
@@ -68,7 +71,7 @@ function applyTheme(t) {
   if (typeof map !== 'undefined' && map && state.me) { renderFilter(); renderMap(false); renderTimeline(); renderTrips(); }
 }
 function themePicker() {
-  return `<div class="theme-list">${Object.entries(THEMES).map(([k, t]) => `
+  return `<div class="theme-list">${VISIBLE_THEMES.map((k) => [k, THEMES[k]]).map(([k, t]) => `
     <button type="button" class="theme-opt ${k === currentTheme ? 'on' : ''}" data-theme-pick="${k}">
       <span class="swatch">${t.swatch.map((c) => `<i style="background:${c}"></i>`).join('')}</span>
       <span class="theme-txt"><b>${t.icon} ${t.name}</b><small>${t.desc}</small></span>
@@ -736,7 +739,7 @@ async function enterApp(user) {
   state.me = { id: user.id, email: user.email, userid: userIdOf(user.email), name };
   // 계정에 저장된 테마가 있으면 이 기기에도 적용 (다른 기기에서 바꾼 테마 따라가기)
   const savedTheme = user.user_metadata?.theme;
-  if (savedTheme && THEMES[savedTheme] && savedTheme !== currentTheme) applyTheme(savedTheme);
+  if (savedTheme && usableTheme(savedTheme) && savedTheme !== currentTheme) applyTheme(savedTheme);
   await showApp();
 }
 
@@ -887,10 +890,10 @@ $('#meBtn').onclick = () => {
       ? `아이디: <b>${esc(state.me.userid)}</b><br>친구가 기록장에 초대할 때 이 아이디를 알려주세요.`
       : esc(state.me.email)}</p>
     <div class="divider"></div>
-    <h3 style="margin:0 0 10px">화면 테마</h3>
+    ${VISIBLE_THEMES.length > 1 ? `<h3 style="margin:0 0 10px">화면 테마</h3>
     <div id="themeBox">${themePicker()}</div>
     <small class="hint">고르면 바로 바뀌어요. 내 계정에 저장돼서 다른 기기에서도 같은 테마로 보여요.</small>
-    <div class="divider"></div>
+    <div class="divider"></div>` : ''}
     <h3 style="margin:0 0 12px">비밀번호 변경</h3>
     <form id="pwForm">
       <input name="username" autocomplete="username" value="${esc(state.me.userid || state.me.email)}" hidden>
@@ -903,7 +906,7 @@ $('#meBtn').onclick = () => {
       <button class="btn" id="logoutBtn">로그아웃</button>
       <button class="btn danger" id="leaveBtn">회원 탈퇴</button>
     </div>`);
-  $('#themeBox', body).onclick = async (e) => {
+  if ($('#themeBox', body)) $('#themeBox', body).onclick = async (e) => {
     const b = e.target.closest('[data-theme-pick]');
     if (!b || b.dataset.themePick === currentTheme) return;
     applyTheme(b.dataset.themePick);

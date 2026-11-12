@@ -23,6 +23,9 @@
     (function () {
       var t = 'glass';
       try { t = localStorage.getItem('travelTheme') || 'glass'; } catch (e) {}
+      // 지금 쓰는 테마 (app.js 에서 hidden 이 아닌 것과 같게). 예전에 고른 다른 테마는 보라 글래스로
+      var usable = { glass: 1 };
+      if (!usable[t]) t = 'glass';
       document.documentElement.dataset.theme = t;
       var links = document.querySelectorAll('link[id^="themeCss-"]');
       for (var i = 0; i < links.length; i++) links[i].disabled = links[i].id !== 'themeCss-' + t;
