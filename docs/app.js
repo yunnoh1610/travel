@@ -1094,6 +1094,7 @@ function initMap() {
   markerLayer = L.layerGroup().addTo(map);
   // 한 여행을 고른 상태에서 지도를 누르면 "이 위치를 일정에 추가"
   map.on('click', (e) => {
+    if (window.mapDismiss?.()) return; // 펼친 마커·고른 장소 카드부터 닫기
     if (state.filter === 'all' || !window.Planner || !canEdit(state.filter)) return;
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -1137,79 +1138,7 @@ $('#tripFilter').onchange = (e) => {
   refresh(true);
 };
 
-function renderMap(fit) {
-  markerLayer.clearLayers();
-  $('#view-map .map-empty')?.remove();
-  $('#view-map .map-bar')?.remove();
-  const single = state.filter !== 'all';
-  // 한 여행을 고르면 계획 일정도 지도에: 예정(점선 테두리) · 취소(회색) · 실제 기록(완료)
-  const planPts = single ? state.plans.filter((i) => i.trip_id === state.filter && i.lat != null) : [];
-  const days = single ? [...new Set([...planPts.map((i) => i.day_date), ...state.places.map(visitKey)])].sort() : [];
-  if (state.mapDay && !days.includes(state.mapDay)) state.mapDay = '';
-  const show = planPts.length ? state.mapShow : 'all';
-  const onDay = (d) => !state.mapDay || d === state.mapDay;
-  const all = state.places.filter((p) => p.lat != null).sort(byVisit); // 위치 없는 기록은 기록장에만
-  const ordered = show === 'plan' ? [] : all.filter((p) => onDay(visitKey(p)));
-  ordered.forEach((p) => {
-    const th = p.photos[0]?.thumb;
-    const html = `<div class="pin">${th ? `<img src="${esc(th)}" alt="">` : catIcon(p.category)}</div>`
-      + (single ? `<div class="pin-num">${all.indexOf(p) + 1}</div>` : '');
-    L.marker([p.lat, p.lng], {
-      icon: L.divIcon({ html, className: 'pin-wrap', iconSize: [44, 44], iconAnchor: [22, 51] }),
-      title: p.name,
-    }).on('click', () => openPlace(p.id)).addTo(markerLayer);
-  });
-  if (single && ordered.length > 1) drawRoute(ordered.map((p) => [p.lat, p.lng]), markerLayer);
-  // 계획 일정 핀: 기록이 연결된 완료 일정은 기록 핀으로 보여요
-  const plans = planPts.filter((i) => onDay(i.day_date) && (
-    show === 'plan' ? planSt(i) === 'PLANNED'
-      : show === 'done' ? planSt(i) === 'DONE' && !recordsOfPlan(i.id).length
-        : !recordsOfPlan(i.id).length));
-  if (show !== 'done') {
-    // 일자별 계획 경로 (점선) — 취소한 일정은 빼고 순서대로
-    for (const d of days.filter(onDay)) {
-      const pts = planPts.filter((i) => i.day_date === d && planSt(i) !== 'CANCELLED');
-      if (pts.length > 1) {
-        L.polyline(pts.map((i) => [i.lat, i.lng]), { color: '#8f84c9', weight: 3, opacity: 0.75, dashArray: '6 8', interactive: false }).addTo(markerLayer);
-      }
-    }
-  }
-  plans.forEach((it) => {
-    const st = planSt(it).toLowerCase();
-    const no = state.plans.filter((x) => x.day_date === it.day_date && x.trip_id === it.trip_id).indexOf(it) + 1;
-    L.marker([it.lat, it.lng], {
-      icon: L.divIcon({ html: `<div class="pin plan-pin ${st}">${ic(PLAN_EMO[it.item_type] || '✨')}</div><div class="pin-num plan">${days.indexOf(it.day_date) + 1}-${no}</div>`,
-        className: 'pin-wrap plan-wrap', iconSize: [34, 34], iconAnchor: [17, 41] }),
-      title: `${PLAN_ST[planSt(it)]}: ${it.title}`,
-      zIndexOffset: -100,
-    }).on('click', () => openPlanSheet(it)).addTo(markerLayer);
-  });
-  // 위쪽 거르기: 전체·예정·완료 + 날짜
-  if (single && days.length) {
-    $('#view-map').insertAdjacentHTML('beforeend', `<div class="map-bar">
-      ${planPts.length ? `<div class="seg mini-seg" role="group" aria-label="지도에 보일 것">
-        ${[['all', '전체'], ['plan', '📋 예정'], ['done', '✓ 완료']].map(([k, l]) => `<button type="button" class="${show === k ? 'on' : ''}" data-mshow="${k}" aria-pressed="${show === k}">${l}</button>`).join('')}
-      </div>` : ''}
-      <select data-mday aria-label="날짜"><option value="">모든 날짜</option>
-        ${days.map((d, i) => `<option value="${d}" ${d === state.mapDay ? 'selected' : ''}>${i + 1}일차 · ${fmtDate(d).replace(/^\d+년 /, '')}</option>`).join('')}</select>
-    </div>`);
-    const bar = $('#view-map .map-bar');
-    bar.onclick = (e) => {
-      const b = e.target.closest('[data-mshow]');
-      if (b) { state.mapShow = b.dataset.mshow; renderMap(true); }
-    };
-    bar.onchange = (e) => { if (e.target.matches('[data-mday]')) { state.mapDay = e.target.value; renderMap(true); } };
-  }
-  const pts = [...ordered.map((p) => [p.lat, p.lng]), ...plans.map((i) => [i.lat, i.lng])];
-  if (!state.places.length && !planPts.length) {
-    const msg = state.trips.length
-      ? '아직 기록이 없어요. 오른쪽 아래 <b>＋</b> 버튼으로 첫 장소를 남겨보세요!'
-      : '반가워요! 먼저 위쪽 <b>🧳</b> 버튼에서 여행을 만들고, 함께한 친구를 초대해 보세요.';
-    $('#view-map').insertAdjacentHTML('beforeend', `<div class="map-empty">${msg}</div>`);
-  } else if (fit && pts.length) {
-    map.fitBounds(pts, { padding: [60, 60], maxZoom: 14, animate: false }); // 다른 탭에 있을 때(지도가 숨겨진 동안) 애니메이션 오류 방지
-  }
-}
+// 지도 탭 그리기(renderMap)는 docs/map-view.js 에 있어요 (번호 마커 · 묶기 · 날짜 거르기 · 하단 카드)
 
 function placeCard(p) {
   const th = p.photos[0]?.thumb;

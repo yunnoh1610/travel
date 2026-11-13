@@ -52,6 +52,14 @@
     db.places.push({ id: 4, trip_id: 1, user_id: 'u-a', name: '숙소', lat: null, lng: null, visited_at: '2026-11-21', visited_time: '21:00:00', plan_item_id: null, title: '비 오는 밤', comment: '창밖 빗소리', memo: null, mood: 'CALM', tags: ['휴식'], category: 'stay', created_at: now() });
     db.place_favorites.push({ user_id: 'u-a', place_id: 1 });
   }
+  // ?dense: 가까운 장소가 많은 여행 (지도 마커 묶기·펼치기 확인용) — 공주 시내에 일정 9개, 그중 2개는 같은 자리
+  if (/dense/.test(location.search)) {
+    const near = [['공주 한옥마을', 36.4632, 127.1200], ['국립공주박물관', 36.4627, 127.1156], ['제민천 카페', 36.4570, 127.1265], ['풀꽃문학관', 36.4575, 127.1280],
+      ['공주 원도심 골목', 36.4569, 127.1271], ['중동 성당', 36.4580, 127.1290], ['공주 밤빵집', 36.4569, 127.1271], ['금강 신관공원', 36.4700, 127.1300], ['정안 밤마을', 36.58, 127.15]];
+    near.forEach(([title, lat, lng], k) => db.itinerary_items.push({ id: 100 + k, trip_id: 1, day_date: k < 5 ? '2026-11-21' : '2026-11-22', sort_order: 10 + k, item_type: k % 3 ? 'PLACE' : 'CAFE', title,
+      start_time: `${String(13 + (k % 5)).padStart(2, '0')}:00:00`, end_time: `${String(13 + (k % 5)).padStart(2, '0')}:50:00`, place_id: null, place_name: title, address: null, lat, lng,
+      verification_status: 'VERIFIED', cost_estimate: null, currency: 'KRW', notes: null, source: 'MANUAL', user_edited: false, created_by: 'u-a', status: k === 2 ? 'DONE' : 'PLANNED' }));
+  }
   const seq = {};
   const nextId = (t) => { seq[t] = Math.max(seq[t] || 0, ...db[t].map((r) => (typeof r.id === 'number' ? r.id : 0))) + 1; return seq[t]; };
   const plan = (tid) => { let p = db.trip_plans.find((x) => x.trip_id === tid); if (!p) { p = { trip_id: tid, revision: 0, prefs: {} }; db.trip_plans.push(p); } return p; };

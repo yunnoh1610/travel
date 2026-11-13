@@ -143,6 +143,16 @@
     root.innerHTML = head + body + selBar;
     setSelecting(!!selBar);
     if (P.tab === 'days') drawDayMap();
+    // 지도 카드의 "타임라인에서 보기": 그 일정으로 스크롤하고 잠깐 강조
+    if (P.focusId && P.tab === 'days') {
+      const li = root.querySelector(`[data-item="${P.focusId}"]`);
+      if (li) {
+        P.focusId = null;
+        setTimeout(() => li.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50);
+        li.classList.add('flash');
+        setTimeout(() => li.classList.remove('flash'), 2200);
+      }
+    }
   }
 
   function pickTripHtml(what) {
@@ -1707,6 +1717,13 @@
       });
     }),
     addWithAI: guard(async (tripId) => { await ensure(tripId); openAiAdd(); }),
+    /** 지도에서 고른 일정을 타임라인에서 보여 주기 (그다음 타임라인 탭으로 바꾸면 그날로 가서 스크롤) */
+    focus(item) {
+      if (!item) return;
+      P.focusId = item.id;
+      P.day = item.day_date;
+      P.tab = 'days';
+    },
   };
 
   // ---------- 연결 ----------
