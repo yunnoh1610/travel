@@ -321,6 +321,13 @@
       if (!S.tripId) return toast('위쪽에서 여행을 먼저 골라 주세요');
       if (galleryMode()) openBookForm(null); else openNewPage();
     },
+    /** 휴대폰 뒤로 가기: 스토리 보기 → 편집기 → 앨범 안 순서로 닫기. 닫은 게 있으면 true */
+    back: () => {
+      if (ST && !ST.sheet) { closeStory(); return true; }
+      if (ED) { if (ED.sel) select(null); else finishEditor(false); return true; }
+      if (S.inAlbum) { S.inAlbum = false; S.sel = null; render(); return true; }
+      return false;
+    },
   };
   // 미리보기 크기에 맞춰 1000×1400 캔버스를 줄임
   function fitThumbs() {

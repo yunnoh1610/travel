@@ -1622,7 +1622,7 @@ function openPlace(id) {
       <span>${kindIcon(trip?.kind)} ${esc(p.trip_title)}</span>
     </div>
     <div class="btn-row">
-      ${p.lat != null ? `<button class="btn" data-act="locate">${ic('🗺️')} 지도에서 보기</button>` : '<span class="muted small-note">📍 위치 없는 기록 (수정에서 위치를 정할 수 있어요)</span>'}
+      ${p.lat != null ? `<button class="btn" data-act="locate">${ic('🗺️')} 지도에서 보기</button>` : canEditP ? `<button class="btn" data-act="edit">📍 위치 추가하기</button>` : '<span class="muted small-note">📍 위치 없는 기록</span>'}
       ${editor ? `<label class="btn">📷 사진 추가<input type="file" accept="image/*" multiple hidden></label>
       <button class="btn" data-act="to-plan">＋ 일정에 추가</button>` : ''}
       ${canEditP ? '<button class="btn" data-act="edit">✏️ 수정</button><button class="btn danger" data-act="delete">삭제</button>' : ''}
@@ -2010,14 +2010,24 @@ function clusterPhotos(items) {
     }
     if (best) { best.c.items.push(it); it.attachedByTime = true; } else leftovers.push(it);
   }
+  // 그래도 남은 위치 없는 사진도 올릴 수 있게: 찍은 시간이 2시간 안·같은 날이면 한 장소 (위치는 나중에 기록에서 넣기)
+  leftovers.sort((a, b) => (a.taken ?? Infinity) - (b.taken ?? Infinity));
+  const sameDay = (a, b) => toYMD(new Date(a)) === toYMD(new Date(b));
+  for (const it of leftovers) {
+    const cur = clusters.filter((c) => c.noLoc).at(-1);
+    const fits = cur && (it.taken == null ? cur.start == null
+      : cur.end != null && it.taken - cur.end <= SAME_PLACE_GAP_MS && sameDay(it.taken, cur.end));
+    if (fits) { cur.items.push(it); if (it.taken != null) cur.end = it.taken; } else clusters.push({ items: [it], center: null, noLoc: true, start: it.taken, end: it.taken });
+  }
   for (const c of clusters) c.items.sort((a, b) => (a.taken ?? Infinity) - (b.taken ?? Infinity));
-  return { clusters, leftovers };
+  clusters.sort((a, b) => (a.start ?? Infinity) - (b.start ?? Infinity));
+  return { clusters, leftovers: [] };
 }
 
 // ---------- 사진으로 한꺼번에 기록 ----------
 const BULK_MAX = 60;
 function openBulkImport() {
-  const defTrip = state.filter !== 'all' ? state.filter : state.trips[0].id;
+  const defTrip = state.filter !== 'all' && canEdit(state.filter) ? state.filter : (editableTrips()[0] || state.trips[0]).id;
   let items = [];
   let clusters = [];
   let leftovers = [];
@@ -2030,7 +2040,7 @@ function openBulkImport() {
 
   const body = openSheet(`<h2>사진으로 한꺼번에 기록</h2>
     <p class="muted" style="margin-top:-6px">그날 찍은 사진을 한 번에 고르면, 찍은 위치별로 장소를 나눠서 기록해 줘요.</p>
-    <label class="field"><span>여행</span><select name="trip" id="bulkTrip">${state.trips.map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
+    <label class="field"><span>여행</span><select name="trip" id="bulkTrip">${editableTrips().map((t) => `<option value="${t.id}" ${t.id === defTrip ? 'selected' : ''}>${kindEmoji(t.kind)} ${esc(t.title)}</option>`).join('')}</select></label>
     <label class="primary pick-btn">📷 사진 고르기 (최대 ${BULK_MAX}장)<input type="file" accept="image/*" multiple hidden id="bulkInput"></label>
     <small class="hint">아이폰은 사진 고르는 화면 위쪽 <b>옵션</b>에서 <b>위치</b>를 켜야 위치 정보가 함께 와요.</small>
     <div id="bulkStatus" class="bulk-status hidden"></div>
@@ -2067,11 +2077,6 @@ function openBulkImport() {
     if (failed) toast(`열 수 없는 사진 ${failed}장은 뺐어요`);
     if (!items.length) { status(''); return; }
     ({ clusters, leftovers } = clusterPhotos(items));
-    if (!clusters.length) {
-      status(`<b>위치 정보가 있는 사진이 없어요.</b><br>아이폰은 사진 고르는 화면 위쪽 <b>옵션 → 위치</b>를 켜고 다시 골라 주세요.
-        안드로이드는 카메라 설정의 <b>위치 태그</b>가 켜져 있어야 해요.`);
-      return;
-    }
     const tripKind = state.trips.find((t) => t.id === Number($('#bulkTrip', body).value))?.kind;
     clusters.forEach((c) => {
       c.include = true;
@@ -2097,7 +2102,7 @@ function openBulkImport() {
   async function nameClusters() {
     for (let i = 0; i < clusters.length; i++) {
       const c = clusters[i];
-      if (c.nameTouched || c.name) continue;
+      if (c.nameTouched || c.name || !c.center) continue; // 위치 없는 장소는 이름을 직접
       let r = { name: '', candidates: [], pick: null };
       try { r = await placeNameAt(c.center.lat, c.center.lng); } catch { /* 이름은 직접 */ }
       if (!body.isConnected) return;
@@ -2141,16 +2146,18 @@ function openBulkImport() {
     const places = clusters.filter((c) => c.include).length;
     const catOpts = (sel) => Object.entries(CATS).map(([k, [ic, label]]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${ic} ${label}</option>`).join('');
     $('#bulkReview', body).innerHTML = `
-      <div class="bulk-summary">📍 장소 <b>${clusters.length}곳</b>으로 나눴어요 · 사진 ${items.length}장${leftovers.length ? ` · 위치 없는 사진 ${leftovers.length}장` : ''}</div>
+      <div class="bulk-summary">📍 장소 <b>${clusters.length}곳</b>으로 나눴어요 · 사진 ${items.length}장</div>
+      ${clusters.some((c) => c.noLoc) ? `<div class="notice">📷 위치 정보가 없는 사진은 <b>찍은 시간</b>으로 묶었어요. 장소 이름을 적어 주세요.
+        위치는 저장한 뒤 기록의 <b>📍 위치 추가하기</b>로 넣을 수 있어요. (여행 계획과 연결하면 계획 장소의 위치를 써요)</div>` : ''}
       <div id="bulkMap" class="mini-map"></div>
       <small class="hint">사진을 누르면 빼거나 다시 넣을 수 있어요. 장소 이름은 위치로 자동으로 찾고, ‘근처’ 후보를 누르면 그 장소로 바꿀 수 있어요.</small>
       ${clusters.map((c, i) => `<div class="bulk-card ${c.include ? '' : 'off'}" data-c="${i}">
         <div class="bulk-head">
           <label class="bulk-check"><input type="checkbox" data-inc ${c.include ? 'checked' : ''}><span class="num">${i + 1}</span></label>
-          <input class="bulk-name" data-name maxlength="60" value="${esc(c.name)}" placeholder="장소 이름 찾는 중…">
+          <input class="bulk-name" data-name maxlength="60" value="${esc(c.name)}" placeholder="${c.noLoc ? '장소 이름을 적어 주세요' : '장소 이름 찾는 중…'}">
         </div>
         <div data-cands>${candChips(c.candidates, `${i}:`, c.name)}</div>
-        <div class="bulk-meta">${c.start != null ? `🕒 ${fmtTime(c.start)}${c.end !== c.start ? `~${fmtTime(c.end).split(' ')[1]}` : ''} · ` : ''}사진 ${photoCount(c)}장${c.items.some((it) => it.attachedByTime) ? ' · 위치 없는 사진은 시간으로 붙임' : ''}</div>
+        <div class="bulk-meta">${c.start != null ? `🕒 ${fmtTime(c.start)}${c.end !== c.start ? `~${fmtTime(c.end).split(' ')[1]}` : ''} · ` : ''}사진 ${photoCount(c)}장${c.noLoc ? ' · <b class="bulk-noloc">📍 위치 없음</b>' : c.items.some((it) => it.attachedByTime) ? ' · 위치 없는 사진은 시간으로 붙임' : ''}</div>
         <div class="photo-strip">${c.items.map((it, j) => `<button type="button" class="bulk-ph ${it.off ? 'off' : ''}" data-ph="${i}:${j}"><img src="${it.preview}" alt=""></button>`).join('')}</div>
         ${state.v005 ? `<div class="grid2 bulk-plan">
           <label><small>시간</small><input type="time" data-time value="${esc(c.time)}"></label>
@@ -2180,7 +2187,7 @@ function openBulkImport() {
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(bmap);
       const pts = [];
       clusters.forEach((c, i) => {
-        if (!c.include) return;
+        if (!c.include || !c.center) return;
         pts.push([c.center.lat, c.center.lng]);
         L.marker([c.center.lat, c.center.lng], {
           icon: L.divIcon({ html: `<div class="pin small">${i + 1}</div>`, className: 'pin-wrap', iconSize: [30, 30], iconAnchor: [15, 30] }),
@@ -2188,7 +2195,7 @@ function openBulkImport() {
       });
       if (pts.length > 1) drawRoute(pts, bmap);
       if (pts.length) bmap.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
-      else bmap.setView(map.getCenter(), 6);
+      else el.classList.add('hidden'); // 모두 위치 없는 사진이면 지도는 숨김
     }, 50);
   }
 
@@ -2285,8 +2292,9 @@ function openBulkImport() {
         const first = photos.find((p) => p.taken != null);
         const { id, failed } = await db.createPlace(tripId, {
           name: (c.name || '').trim() || `장소 ${done + 1}`,
-          lat: c.center.lat,
-          lng: c.center.lng,
+          // 위치 없는 장소는 연결한 계획의 위치, 그것도 없으면 위치 없이 (나중에 기록에서 넣기)
+          lat: c.center?.lat ?? bulkPlans.find((x) => x.id === c.planId)?.lat ?? null,
+          lng: c.center?.lng ?? bulkPlans.find((x) => x.id === c.planId)?.lng ?? null,
           visited_at: first ? toYMD(new Date(first.taken)) : today(),
           category: c.category,
           comment: c.comment.trim() || null,
@@ -2782,10 +2790,10 @@ function tripMoreHtml(trip) {
   return `<details class="more-info" ${has ? 'open' : ''}>
     <summary>여행 정보 더 넣기 <small>(선택)</small></summary>
     ${state.v007 ? `<div class="grid2">
-      <label class="field"><span>국가</span><input name="country" list="countryList" maxlength="40" value="${esc(trip?.country || '')}" placeholder="예: 일본"></label>
+      <div class="field cn-field"><label for="tfCountry">국가</label><input id="tfCountry" name="country" maxlength="40" value="${esc(trip?.country || '')}" placeholder="예: 일본" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="cnSugg">
+        <div class="cn-sugg hidden" id="cnSugg" role="listbox" aria-label="국가 고르기"></div></div>
       <label class="field"><span>도시 <small>쉼표로 여러 곳</small></span><input name="cities" maxlength="200" value="${esc((trip?.cities || []).join(', '))}" placeholder="예: 도쿄, 오사카"></label>
     </div>
-    <datalist id="countryList">${COUNTRIES.map((c) => `<option value="${c}">`).join('')}</datalist>
     <div class="field"><span>여행 유형</span><div class="cats">
       <label><input type="radio" name="party_type" value="" ${trip?.party_type ? '' : 'checked'}><span>선택 안 함</span></label>
       ${Object.entries(PARTY).map(([k, l]) => `<label><input type="radio" name="party_type" value="${k}" ${trip?.party_type === k ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></div>` : ''}
@@ -3007,3 +3015,49 @@ function openTrip(id) {
     showAuth();
   }
 })();
+
+// ---------- 스토어 앱: 안드로이드 뒤로 가기 버튼 ----------
+// 열린 창부터 하나씩 닫고, 다른 탭이면 지도 탭으로, 지도 탭이면 앱을 뒤로 보내요 (바로 꺼지지 않게)
+function handleBack() {
+  const lb = $('#lightbox');
+  if (lb && !lb.classList.contains('hidden')) { lb.classList.add('hidden'); return true; }
+  if ($('#sheet').classList.contains('open')) { closeSheet(); return true; }
+  if (state.view === 'scrap' && window.Scrapbook?.back?.()) return true;
+  if (state.jsel) { state.jsel = null; setSelecting(false); renderJournal(); return true; }
+  if (state.view === 'map' && window.mapDismiss?.()) return true;
+  if (state.view !== 'map') { switchView('map'); return true; }
+  return false;
+}
+if (IS_APP) {
+  window.Capacitor?.Plugins?.App?.addListener('backButton', () => {
+    if (!handleBack()) window.Capacitor.Plugins.App.minimizeApp();
+  });
+}
+
+// ---------- 국가 고르기 (안드로이드 앱 화면은 datalist 를 고를 수 없어서 직접 만든 목록) ----------
+function countrySugg(input, show) {
+  const box = $('#cnSugg');
+  if (!box) return;
+  const q = input.value.trim();
+  const list = (q ? COUNTRIES.filter((c) => c.includes(q) && c !== q) : COUNTRIES).slice(0, q ? 8 : 12);
+  const open = show && list.length > 0;
+  box.innerHTML = list.map((c) => `<button type="button" role="option" data-cn="${esc(c)}">${esc(c)}</button>`).join('');
+  box.classList.toggle('hidden', !open);
+  input.setAttribute('aria-expanded', String(open));
+}
+document.addEventListener('focusin', (e) => { if (e.target.id === 'tfCountry') countrySugg(e.target, true); });
+document.addEventListener('input', (e) => { if (e.target.id === 'tfCountry') countrySugg(e.target, true); });
+document.addEventListener('focusout', (e) => {
+  // 목록 버튼을 누르는 중이면 닫지 않기
+  if (e.target.id === 'tfCountry' && !e.relatedTarget?.closest?.('#cnSugg')) setTimeout(() => countrySugg(e.target, false), 150);
+});
+document.addEventListener('pointerdown', (e) => { if (e.target.closest('#cnSugg')) e.preventDefault(); }); // 입력 칸 포커스 유지
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cn]');
+  if (!b) return;
+  const input = $('#tfCountry');
+  if (!input) return;
+  input.value = b.dataset.cn;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  countrySugg(input, false);
+});

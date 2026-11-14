@@ -83,7 +83,7 @@ npx supabase functions deploy ai-planner --project-ref bkqvcexlcqfciscdgodr
 | `KAKAO_REST_API_KEY` | | | 카카오 로컬 **REST** 키 (서버 전용). 있으면 한국 장소 후보·검증이 정확해져요. 없으면 OpenStreetMap |
 | `AI_HOURLY_LIMIT` / `AI_DAILY_LIMIT` | | `10` / `30` | 사용자별 1시간/24시간 호출 상한 |
 | `AI_TIMEOUT_MS` | | `90000` | OpenAI 응답 대기 시간 |
-| `ALLOWED_ORIGINS` | | `https://yunnoh1610.github.io,http://localhost:3700` | CORS 허용 주소 |
+| `ALLOWED_ORIGINS` | | `https://yunnoh1610.github.io,http://localhost:3700,https://localhost,capacitor://localhost` | CORS 허용 주소 (뒤의 두 개는 안드로이드·아이폰 앱) |
 
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`는 Supabase가 자동으로 넣어 줘요.
 

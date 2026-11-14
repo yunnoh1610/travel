@@ -367,7 +367,7 @@ canvas.sb-deco { display: block; width: 100%; height: 100%; }
 .more-info summary { min-height: 44px; display: flex; align-items: center; font-weight: 700; cursor: pointer; color: var(--heading, var(--text)); }
 .more-info[open] summary { margin-bottom: 6px; }
 .more-info summary small { color: var(--muted); font-weight: 600; margin-left: 4px; }
-.budget-in { display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 6px; }
+.budget-in { display: grid; grid-template-columns: minmax(0, 1fr) 86px; gap: 6px; }
 .budget-in input, .budget-in select { min-width: 0; }
 .cover-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; }
 .cover-pick input { display: none; }
@@ -581,3 +581,14 @@ body.map-card-open #view-map .leaflet-control-attribution { display: none; }
   .pi-move-head .route-btn { width: 36px; padding: 0; justify-content: center; }
 }
 .pi-move .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* 국가 고르기 (직접 만든 목록 — 안드로이드 앱 화면에서 datalist 를 못 골라서) */
+.cn-field { position: relative; }
+.cn-field > label { display: flex; font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+.cn-sugg { position: absolute; left: 0; right: 0; top: 100%; z-index: 30; margin-top: 4px; max-height: 220px; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 4px; }
+.cn-sugg button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 11px 12px; border-radius: 8px; font-size: 15px; min-height: 44px; }
+.cn-sugg button:hover, .cn-sugg button:focus-visible { background: var(--accent-soft, #efeaf9); }
+/* 예산: 금액 칸과 1인/전체 칸, 옆의 교통 칸 높이를 똑같이 */
+.more-info .grid2 .field input, .more-info .grid2 .field select, .budget-in input, .budget-in select { height: 52px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
+.budget-in select { padding-left: 8px; padding-right: 4px; }

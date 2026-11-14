@@ -24,7 +24,8 @@ const REASONING = env('OPENAI_REASONING_EFFORT', 'low'); // 추론 모델이 아
 const HOURLY = Number(env('AI_HOURLY_LIMIT', '10'));
 const DAILY = Number(env('AI_DAILY_LIMIT', '30'));
 const TIMEOUT_MS = Number(env('AI_TIMEOUT_MS', '90000'));
-const ORIGINS = env('ALLOWED_ORIGINS', 'https://yunnoh1610.github.io,http://localhost:3700').split(',').map((s) => s.trim()).filter(Boolean);
+// https://localhost = 안드로이드 앱(Capacitor), capacitor://localhost = 아이폰 앱
+const ORIGINS = env('ALLOWED_ORIGINS', 'https://yunnoh1610.github.io,http://localhost:3700,https://localhost,capacitor://localhost').split(',').map((s) => s.trim()).filter(Boolean);
 
 const admin = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
 

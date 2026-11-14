@@ -217,7 +217,7 @@
     const mode = t && TRANSIT[t.mode];
     const distTxt = dist != null && dist > 30 ? kmText(dist) : '';
     const how = t?.est === 'DIST' ? '두 장소의 거리로 계산한 예상 시간' : ai ? 'AI가 추정한 예상 시간' : t?.byUser ? '직접 고친 예상 시간' : '예상 시간';
-    const tip = [t ? how : '', distTxt ? `직선거리 ${distTxt}` : '', t?.detail || ''].filter(Boolean).join(' · ');
+    const tip = [t ? how : '', distTxt ? `직선거리 ${distTxt}` : '', t?.detail || '', steps.length ? steps.join(' → ') : ''].filter(Boolean).join(' · ');
     return `<li class="pi-move" aria-label="이동">
       <div class="pi-move-head">
         <span class="mv-info" title="${esc(tip)}">${mode
@@ -226,8 +226,7 @@
         ${it.lat != null ? `<a class="route-btn" href="${esc(routeUrl(prev, it))}" target="_blank" rel="noopener noreferrer" aria-label="${esc(it.title)}까지 지도 앱 길찾기" title="${transitMode ? '버스·지하철 번호와 시간은 지도 앱에서 확인해요' : '지도 앱 길찾기'}"><span aria-hidden="true">🗺️</span><span class="mv-lbl">길찾기</span></a>` : ''}
         ${state.v011 && canEdit(P.tripId) && !P.sel ? `<button type="button" class="move-edit" data-transit-edit="${it.id}" aria-label="${esc(it.title)}까지 이동 수단·시간 고치기" title="이동 수단·시간 고치기">${LUCIDE.pencil}</button>` : ''}
       </div>
-      ${t?.detail ? `<small class="mv-detail muted">${esc(t.detail)}</small>` : ''}
-      ${steps.length ? `<ol class="pi-steps">${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+      <!-- 가는 방법(설명·단계)은 화면을 간단하게 하려고 숨겨요: 연필(고치기) 창과 🗺️ 길찾기에서 봐요 -->
     </li>`;
   }
   // ---------- 이동 수단·시간 고치기 (이동 줄의 ✏️) ----------
