@@ -120,7 +120,10 @@ const CFG = window.TRAVEL_CONFIG || {};
 const sb = CFG.url && CFG.key && window.supabase
   ? window.supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } })
   : null;
-const APP_URL = location.origin + location.pathname.replace(/index\.html$/, '');
+// 스토어 앱(Capacitor) 안에서는 주소가 https://localhost 라서, 초대 링크 등 밖으로 보내는 주소는 웹사이트 주소로
+const IS_APP = !!window.Capacitor?.isNativePlatform?.();
+const APP_URL = IS_APP ? (CFG.publicUrl || 'https://yunnoh1610.github.io/travel/') : location.origin + location.pathname.replace(/index\.html$/, '');
+document.documentElement.classList.toggle('native-app', IS_APP);
 const BUCKET = 'photos';
 
 // 아이디 가입: Supabase 안에서는 "아이디@travel-diary.example.com" 으로 저장 (실제로 메일이 가지 않는 예약 주소)

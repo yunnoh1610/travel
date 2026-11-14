@@ -1,0 +1,12 @@
+{
+  "appId": "com.moalog.app",
+  "appName": "모아로그",
+  "webDir": "docs",
+  "backgroundColor": "#ffffff",
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "never"
+  }
+}

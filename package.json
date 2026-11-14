@@ -7,16 +7,25 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test \"tests/*.test.mjs\""
+    "test": "node --test \"tests/*.test.mjs\"",
+    "app:sync": "cap sync",
+    "app:android": "cap sync android && cap open android",
+    "app:ios": "cap sync ios && cap open ios",
+    "app:icons": "node brand/tools/make_app_assets.mjs && capacitor-assets generate --android --ios --iconBackgroundColor \"#9276CE\" --iconBackgroundColorDark \"#2C2440\" --splashBackgroundColor \"#FFF8EB\" --splashBackgroundColorDark \"#231D33\""
   },
   "engines": {
     "node": ">=22.13"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2",
     "express": "^5.1.0",
     "multer": "^2.0.2"
   },
   "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.2",
     "@electric-sql/pglite": "^0.5.16"
   }
 }
