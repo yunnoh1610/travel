@@ -44,7 +44,26 @@ npm run app:icons     # 아이콘·시작 화면 다시 만들기
 4. Product → Archive → App Store Connect 로 업로드 → TestFlight → 심사 제출
    - 심사 메모에 **테스트 계정 아이디·비밀번호**를 꼭 적어 주세요 (로그인해야 쓰는 앱)
 
-Mac 이 없으면 Codemagic 같은 클라우드 빌드(`ios/` 폴더를 빌드)로도 올릴 수 있어요.
+## 아이폰 (맥 없이) — Codemagic 클라우드 빌드 → TestFlight
+
+설정 파일: 저장소 맨 위 `codemagic.yaml` (워크플로 이름: **모아로그 iOS → TestFlight**)
+
+1. ✅ Apple Developer Program 가입 (아이폰의 Apple Developer 앱으로 가능)
+2. ✅ developer.apple.com → Identifiers 에 App ID `com.moalog.app` 등록 (Capabilities 체크 없음)
+3. ✅ App Store Connect → 앱 → ＋ 새로운 앱 (iOS · 모아로그 · 한국어 · `com.moalog.app` · SKU `moalog`)
+4. App Store Connect → 사용자 및 액세스 → 통합 → App Store Connect API → **키 생성** (액세스: App Manager)
+   - `.p8` 파일은 한 번만 받을 수 있어요 → 안전한 곳에 보관 (Git·채팅에 올리지 않기)
+   - **Issuer ID** 와 **키 ID** 도 적어 두기
+5. https://codemagic.io → GitHub 로 가입 → **Add application** → `yunnoh1610/travel` → 프로젝트 종류 **Capacitor** (또는 Other) 
+6. Codemagic → **Team settings → Integrations → Developer Portal → Connect** → 이름 **`moalog-asc`**, Issuer ID · 키 ID · `.p8` 파일
+7. (선택) 앱 → Environment variables → `APP_STORE_APPLE_ID` = App Store Connect → 앱 정보 → **Apple ID**(숫자)
+8. 앱 화면에서 **Start new build** → 브랜치 `main`, 워크플로 **모아로그 iOS → TestFlight** → 15~25분
+   - 서명 인증서·프로필은 처음 빌드 때 자동으로 만들어져요
+9. 빌드가 끝나면 App Store Connect → TestFlight 에서 "처리 중" → 10~30분 뒤 사용 가능
+   - TestFlight → **내부 테스팅** 그룹을 만들고 내 Apple ID 를 테스터로 추가
+10. 아이폰에 **TestFlight** 앱 설치 → 모아로그 **설치**
+
+새 버전: `docs/` 를 고쳐서 main 에 푸시한 뒤 Codemagic 에서 Start new build (자동으로는 안 돌아요 — 무료 시간 아끼기, 한 달 500분)
 
 ## 바깥 서비스 설정 (사용자가 직접)
 

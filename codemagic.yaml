@@ -1,0 +1,59 @@
+# Codemagic (https://codemagic.io) — 맥 없이 아이폰 앱 만들기
+# 클라우드 맥에서 docs/ 를 앱에 복사 → 자동 서명 → 빌드 → App Store Connect(TestFlight) 에 올려요.
+# 처음 준비 (사용자):
+#   1) Codemagic → Team settings → Integrations → Developer Portal 에 App Store Connect API 키(.p8)를
+#      이름 "moalog-asc" 로 등록 (다른 이름이면 아래 integrations 값을 같게)
+#   2) (선택) 앱 → Environment variables 에 APP_STORE_APPLE_ID = App Store Connect → 앱 정보 → "Apple ID" 숫자
+#      (넣어 두면 TestFlight 의 마지막 빌드 번호 + 1 로 올려요. 없으면 Codemagic 빌드 번호를 써요)
+# 자세한 순서: APP_BUILD.md 의 "아이폰 (맥 없이)"
+workflows:
+  ios-testflight:
+    name: 모아로그 iOS → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: moalog-asc
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.moalog.app
+      node: 22
+      xcode: latest
+    triggering:
+      events: [] # 자동으로 돌지 않아요. Codemagic 에서 "Start new build" 를 눌렀을 때만 (무료 빌드 시간 아끼기)
+    scripts:
+      - name: 패키지 설치
+        script: npm ci
+      - name: 화면 파일(docs/)을 iOS 앱에 복사
+        script: npx cap sync ios
+      - name: 서명 파일 받기 (없으면 인증서·프로비저닝 프로필 자동 생성)
+        script: |
+          app-store-connect fetch-signing-files com.moalog.app --type IOS_APP_STORE --create
+          keychain initialize
+          keychain add-certificates
+          xcode-project use-profiles --project ios/App/App.xcodeproj
+      - name: 빌드 번호 정하기
+        script: |
+          if [ -n "$APP_STORE_APPLE_ID" ]; then
+            LAST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
+            NEXT=$((LAST + 1))
+          else
+            NEXT=$((BUILD_NUMBER + 1))
+          fi
+          echo "BUILD_NO=$NEXT" >> $CM_ENV
+          echo "빌드 번호: $NEXT"
+      - name: 앱 파일(ipa) 만들기
+        script: |
+          xcode-project build-ipa \
+            --project ios/App/App.xcodeproj \
+            --scheme App \
+            --archive-xcargs "CURRENT_PROJECT_VERSION=$BUILD_NO"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        # 내부 테스터(나)는 업로드·처리가 끝나면 바로 TestFlight 에서 설치할 수 있어요.
+        # 외부 테스터에게 보내려면 true (애플의 베타 심사가 필요해요)
+        submit_to_testflight: false
