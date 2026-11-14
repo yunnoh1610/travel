@@ -56,6 +56,10 @@ npm run app:icons     # 아이콘·시작 화면 다시 만들기
    - **Issuer ID** 와 **키 ID** 도 적어 두기
 5. https://codemagic.io → GitHub 로 가입 → **Add application** → `yunnoh1610/travel` → 프로젝트 종류 **Capacitor** (또는 Other) 
 6. Codemagic → **Team settings → Integrations → Developer Portal → Connect** → 이름 **`moalog-asc`**, Issuer ID · 키 ID · `.p8` 파일
+6-1. **서명용 개인 키** (처음 한 번): PowerShell 에서
+   `ssh-keygen -t rsa -b 2048 -m PEM -f $HOME\moalog_cert_key -q -N '""'` → `Get-Content $HOME\moalog_cert_key -Raw | Set-Clipboard`
+   → Codemagic 앱 → **Environment variables** → 이름 `CERTIFICATE_PRIVATE_KEY`, 값 붙여넣기, 그룹 `moalog_signing`, **Secret** 체크 → Add
+   (이 키 파일도 비밀번호처럼 보관 — 다음 빌드에서도 같은 인증서를 써요)
 7. (선택) 앱 → Environment variables → `APP_STORE_APPLE_ID` = App Store Connect → 앱 정보 → **Apple ID**(숫자)
 8. 앱 화면에서 **Start new build** → 브랜치 `main`, 워크플로 **모아로그 iOS → TestFlight** → 15~25분
    - 서명 인증서·프로필은 처음 빌드 때 자동으로 만들어져요

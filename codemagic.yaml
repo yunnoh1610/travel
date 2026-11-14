@@ -3,7 +3,8 @@
 # 처음 준비 (사용자):
 #   1) Codemagic → Team settings → Integrations → Developer Portal 에 App Store Connect API 키(.p8)를
 #      이름 "moalog-asc" 로 등록 (다른 이름이면 아래 integrations 값을 같게)
-#   2) (선택) 앱 → Environment variables 에 APP_STORE_APPLE_ID = App Store Connect → 앱 정보 → "Apple ID" 숫자
+#   2) 서명용 개인 키를 앱 → Environment variables 에 CERTIFICATE_PRIVATE_KEY (그룹 moalog_signing, Secret) 로 (APP_BUILD.md)
+#   3) (선택) 앱 → Environment variables 에 APP_STORE_APPLE_ID = App Store Connect → 앱 정보 → "Apple ID" 숫자
 #      (넣어 두면 TestFlight 의 마지막 빌드 번호 + 1 로 올려요. 없으면 Codemagic 빌드 번호를 써요)
 # 자세한 순서: APP_BUILD.md 의 "아이폰 (맥 없이)"
 workflows:
@@ -14,9 +15,10 @@ workflows:
     integrations:
       app_store_connect: moalog-asc
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.moalog.app
+      # 서명 인증서를 만들 때 쓰는 개인 키 (CERTIFICATE_PRIVATE_KEY) — Codemagic 앱의 Environment variables 에 그룹 이름 moalog_signing 으로
+      # (ios_signing 자동 서명은 이미 있는 프로필만 찾아서, 처음에는 "No matching profiles" 가 나요 → 아래 스크립트가 직접 만들어요)
+      groups:
+        - moalog_signing
       node: 22
       xcode: latest
     triggering:
@@ -28,8 +30,8 @@ workflows:
         script: npx cap sync ios
       - name: 서명 파일 받기 (없으면 인증서·프로비저닝 프로필 자동 생성)
         script: |
-          app-store-connect fetch-signing-files com.moalog.app --type IOS_APP_STORE --create
           keychain initialize
+          app-store-connect fetch-signing-files com.moalog.app --type IOS_APP_STORE --create
           keychain add-certificates
           xcode-project use-profiles --project ios/App/App.xcodeproj
       - name: 빌드 번호 정하기
